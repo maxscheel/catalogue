@@ -16,6 +16,8 @@ import traceback
 import norad_cache
 from dateutil import parser
 import sun_object
+from profiling import profile_endpoint, ProfilingMiddleware, metrics
+from restful_api_v2 import register_v2_api
 
 waas_cache = norad_cache.NORADCache()
 # extra_cache = norad_cache.ExtraCache()
@@ -24,6 +26,9 @@ galileo_cache = norad_cache.GalileoCache()
 beidou_cache = norad_cache.BeidouCache()
 
 sun = sun_object.SunObject()
+
+# Initialize profiling
+print("Initializing profiling middleware...")
 
 
 def parse_date(date_string):
@@ -113,6 +118,7 @@ def handle_exception(e):
     @apiSampleRequest /catalog?lat=-45.85&lon=170.54
 """
 @app.route('/catalog', methods=['GET', ])
+@profile_endpoint(include_system_metrics=True)
 def get_catalog():
     date = parse_request_date(request)
     lat = angle.from_dms(float(get_required_parameter(request, 'lat')))
@@ -139,6 +145,7 @@ def get_catalog():
 """
 
 @app.route('/position', methods=['GET', ])
+@profile_endpoint(include_system_metrics=True)
 def get_pos():
     try:
         date = parse_request_date(request)
@@ -182,6 +189,7 @@ def get_pos():
 """
 
 @app.route('/bulk_az_el', methods=['POST', ])
+@profile_endpoint(include_system_metrics=True)
 def get_bulk_az_el():
     content_type = request.headers.get('Content-Type')
     if (content_type == 'application/json'):
@@ -214,9 +222,36 @@ def get_bulk_az_el():
         tb = traceback.format_exc()
         ret = f"Exception: {err}"
         lines = tb.split("\n")
-        return jsonify({"error": ret, "traceback": lines, "param": f"{res}"})
+        return jsonify({"error": ret, "traceback": lines, "param": f"{res}", "version": "v1"})
 
+
+# Register V2 API and profiling
+register_v2_api(app)
+
+# Add performance monitoring endpoints for V1
+@app.route('/v1/performance/stats', methods=['GET'])
+def get_v1_performance_stats():
+    """Get V1 performance statistics"""
+    stats = metrics.get_stats()
+    return jsonify({"v1_stats": stats, "version": "v1"})
+
+@app.route('/performance/compare', methods=['GET'])
+def compare_performance():
+    """Compare V1 vs V2 performance"""
+    stats = metrics.get_stats()
+    
+    v1_endpoints = {k: v for k, v in stats.items() if not k.startswith('GET /v2') and not k.startswith('POST /v2')}
+    v2_endpoints = {k: v for k, v in stats.items() if k.startswith('GET /v2') or k.startswith('POST /v2')}
+    
+    return jsonify({
+        "v1_endpoints": v1_endpoints,
+        "v2_endpoints": v2_endpoints,
+        "comparison_available": len(v1_endpoints) > 0 and len(v2_endpoints) > 0
+    })
 
 if __name__ == '__main__':
-    print("Hello world")
+    print("Hello world - Starting catalogue API with V1 and V2 endpoints")
+    print("V1 endpoints: /catalog, /position, /bulk_az_el")
+    print("V2 endpoints: /v2/catalog, /v2/position, /v2/bulk_az_el")
+    print("Performance monitoring: /performance/compare, /v1/performance/stats, /v2/performance/stats")
     app.run(port=8876, host='0.0.0.0')

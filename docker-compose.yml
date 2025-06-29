@@ -13,7 +13,7 @@ services:
         environment:
             - FLASK_DEBUG=0
         volumes:
-            - ~/catalog_cache:/object_position_server/orbit_data
+            - ~/catalog_cache:/app/orbit_data
         logging:
             driver: "json-file"
             options:

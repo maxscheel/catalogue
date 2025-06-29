@@ -1,21 +1,33 @@
-FROM debian:bullseye
-MAINTAINER Tim Molteno "tim@elec.ac.nz"
-ARG DEBIAN_FRONTEND=noninteractive
+FROM ghcr.io/astral-sh/uv:python3.13-bookworm
 
-# debian setup
-RUN apt-get update && apt-get install -y \
-    python3-numpy python3-matplotlib python3-dateutil \
-    python3-flask python3-flask-cors \
-    python3-sgp4 python3-requests python3-tz \
-    python3-waitress python3-pip \
-    python3-healpy python3-astropy python3-h5py
+LABEL maintainer="Tim Molteno <tim@elec.ac.nz>"
 
-RUN rm -rf /var/lib/apt/lists/*
-RUN ls
-RUN pip3 install tart
+# Set environment variables for uv and Python
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    PYTHONPATH=/app \
+    PYTHONUNBUFFERED=1 \
+    PATH="/app/.venv/bin:$PATH"
 
-# setup working directory
-ADD ./app/ /object_position_server
-WORKDIR /object_position_server
+# Create app directory
+WORKDIR /app
 
-CMD waitress-serve --port 8876 'restful_api:app'
+# Copy only requirements first for maximum caching
+COPY requirements.txt ./
+
+# Create virtual environment and install dependencies
+# This layer will be cached unless requirements.txt changes
+RUN uv venv && \
+    uv pip install -r requirements.txt
+
+# Copy pyproject.toml if it exists (optional, for future use)
+COPY pyproject.toml* ./
+
+# Copy application code last (changes most frequently)
+COPY ./app/ /app/
+
+# Expose port
+EXPOSE 8876
+
+# Run the application using the installed waitress
+CMD [".venv/bin/waitress-serve", "--port", "8876", "restful_api:app"]
