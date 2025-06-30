@@ -118,7 +118,7 @@ def handle_exception(e):
     @apiSampleRequest /catalog?lat=-45.85&lon=170.54
 """
 @app.route('/catalog', methods=['GET', ])
-@profile_endpoint(include_system_metrics=True)
+@profile_endpoint(include_system_metrics=True, profile_code=True )
 def get_catalog():
     date = parse_request_date(request)
     lat = angle.from_dms(float(get_required_parameter(request, 'lat')))
@@ -145,7 +145,7 @@ def get_catalog():
 """
 
 @app.route('/position', methods=['GET', ])
-@profile_endpoint(include_system_metrics=True)
+@profile_endpoint(include_system_metrics=True, profile_code=True)
 def get_pos():
     try:
         date = parse_request_date(request)
@@ -189,7 +189,7 @@ def get_pos():
 """
 
 @app.route('/bulk_az_el', methods=['POST', ])
-@profile_endpoint(include_system_metrics=True)
+@profile_endpoint(include_system_metrics=True, profile_code=True)
 def get_bulk_az_el():
     content_type = request.headers.get('Content-Type')
     if (content_type == 'application/json'):
@@ -239,10 +239,10 @@ def get_v1_performance_stats():
 def compare_performance():
     """Compare V1 vs V2 performance"""
     stats = metrics.get_stats()
-    
+
     v1_endpoints = {k: v for k, v in stats.items() if not k.startswith('GET /v2') and not k.startswith('POST /v2')}
     v2_endpoints = {k: v for k, v in stats.items() if k.startswith('GET /v2') or k.startswith('POST /v2')}
-    
+
     return jsonify({
         "v1_endpoints": v1_endpoints,
         "v2_endpoints": v2_endpoints,

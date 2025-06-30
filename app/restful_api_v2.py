@@ -42,32 +42,32 @@ def v2_profile_decorator(func):
     def wrapper(*args, **kwargs):
         if not V2_PROFILING_ENABLED:
             return func(*args, **kwargs)
-        
+
         # Start profiling
         pr = cProfile.Profile()
         start_time = time.time()
         pr.enable()
-        
+
         try:
             # Execute the function
             result = func(*args, **kwargs)
-            
+
             # Stop profiling
             pr.disable()
             end_time = time.time()
-            
+
             # Extract profiling data
             s = io.StringIO()
             ps = pstats.Stats(pr, stream=s)
             ps.sort_stats('tottime')
             ps.print_stats(V2_PROFILE_TOP_N)
             profile_text = s.getvalue()
-            
+
             # Parse top functions
             lines = profile_text.split('\n')
             top_functions = []
             in_stats = False
-            
+
             for line in lines:
                 if 'tottime' in line and 'percall' in line:
                     in_stats = True
@@ -87,7 +87,7 @@ def v2_profile_decorator(func):
                             })
                         except (ValueError, IndexError):
                             continue
-            
+
             # Get original response data
             if hasattr(result, 'get_json'):
                 original_data = result.get_json()
@@ -95,12 +95,12 @@ def v2_profile_decorator(func):
             else:
                 original_data = result.json if hasattr(result, 'json') else result
                 status_code = 200
-            
+
             # Calculate serialization time
             serialization_start = time.time()
             json_str = json.dumps(original_data)
             serialization_time = time.time() - serialization_start
-            
+
             # Add profiling data to response
             total_time = end_time - start_time
             profiled_response = {
@@ -118,9 +118,9 @@ def v2_profile_decorator(func):
                     'endpoint': func.__name__
                 }
             }
-            
+
             return jsonify(profiled_response)
-            
+
         except Exception as e:
             pr.disable()
             # Return error with minimal profiling info
@@ -132,7 +132,7 @@ def v2_profile_decorator(func):
                     'endpoint': func.__name__
                 }
             }), 500
-    
+
     return wrapper
 
 # ==============================
@@ -141,10 +141,10 @@ def v2_profile_decorator(func):
 
 class OptimizedCacheManager:
     """Singleton cache manager with thread-safe operations and connection pooling"""
-    
+
     _instance = None
     _lock = threading.Lock()
-    
+
     def __new__(cls):
         if cls._instance is None:
             with cls._lock:
@@ -152,24 +152,24 @@ class OptimizedCacheManager:
                     cls._instance = super().__new__(cls)
                     cls._instance._initialized = False
         return cls._instance
-    
+
     def __init__(self):
         if self._initialized:
             return
-        
+
         self._initialized = True
         self._cache_lock = threading.RLock()
         self._position_cache = {}
         self._azimuth_elevation_cache = {}
         self._cache_ttl = 300  # 5 minutes TTL
         self._max_cache_size = 1000
-        
+
         # Initialize caches with pre-loading
         self._init_caches()
-        
+
         # Start background cache refresh
         self._start_cache_refresh_thread()
-    
+
     def _init_caches(self):
         """Initialize satellite caches"""
         # Initialize caches - using same instances as V1 for consistency
@@ -188,31 +188,31 @@ class OptimizedCacheManager:
             def decorated_function(*args, **kwargs):
                 if not ENABLE_V2_PROFILING:
                     return f(*args, **kwargs)
-        
+
                 # Start profiling
                 pr = cProfile.Profile()
                 start_time = time.time()
                 pr.enable()
-        
+
                 try:
                     # Execute the endpoint
                     result = f(*args, **kwargs)
-            
+
                     pr.disable()
                     end_time = time.time()
-            
+
                     # Process profiling data
                     s = io.StringIO()
                     ps = pstats.Stats(pr, stream=s)
                     ps.sort_stats('tottime')
                     ps.print_stats(15)  # Top 15 functions
                     profile_text = s.getvalue()
-            
+
                     # Parse top functions
                     lines = profile_text.split('\n')
                     top_functions = []
                     in_stats = False
-            
+
                     for line in lines:
                         if 'tottime' in line and 'percall' in line:
                             in_stats = True
@@ -232,7 +232,7 @@ class OptimizedCacheManager:
                                     })
                                 except (ValueError, IndexError):
                                     continue
-            
+
                     # Get the response data
                     if hasattr(result, 'get_json'):
                         response_data = result.get_json()
@@ -244,15 +244,15 @@ class OptimizedCacheManager:
                             response_data = json.loads(response_data)
                         except:
                             pass
-            
+
                     # Calculate serialization time
                     serialization_start = time.time()
                     json_size = len(json.dumps(response_data))
                     serialization_time = (time.time() - serialization_start) * 1000
-            
+
                     # Add profiling data to response
                     total_time_ms = (end_time - start_time) * 1000
-            
+
                     if isinstance(response_data, dict):
                         response_data['_v2_profile'] = {
                             'total_time_ms': round(total_time_ms, 2),
@@ -263,20 +263,20 @@ class OptimizedCacheManager:
                             'cache_stats': cache_manager.get_cache_stats() if 'cache_manager' in globals() else {},
                             'endpoint': f.__name__
                         }
-            
+
                     return jsonify(response_data) if not hasattr(result, 'get_json') else result
-            
+
                 except Exception as e:
                     pr.disable()
                     # Don't let profiling errors break the endpoint
                     return f(*args, **kwargs)
-    
+
             return decorated_function
-        
+
         # Pre-warm caches with current data
         current_time = utc.now()
         self._preload_cache_data(current_time)
-    
+
     def _preload_cache_data(self, date):
         """Pre-load cache data for better performance"""
         try:
@@ -287,7 +287,7 @@ class OptimizedCacheManager:
             self.beidou_cache.get_positions(date)
         except Exception as e:
             print(f"Cache preload warning: {e}")
-    
+
     def _start_cache_refresh_thread(self):
         """Start background thread to refresh cache data"""
         def refresh_worker():
@@ -299,15 +299,15 @@ class OptimizedCacheManager:
                     self._preload_cache_data(current_time)
                 except Exception as e:
                     print(f"Cache refresh error: {e}")
-        
+
         refresh_thread = threading.Thread(target=refresh_worker, daemon=True)
         refresh_thread.start()
-    
+
     def _cleanup_expired_cache(self):
         """Clean up expired cache entries"""
         with self._cache_lock:
             current_time = time.time()
-            
+
             # Clean position cache
             expired_keys = [
                 key for key, (data, timestamp) in self._position_cache.items()
@@ -315,7 +315,7 @@ class OptimizedCacheManager:
             ]
             for key in expired_keys:
                 del self._position_cache[key]
-            
+
             # Clean az/el cache
             expired_keys = [
                 key for key, (data, timestamp) in self._azimuth_elevation_cache.items()
@@ -323,98 +323,98 @@ class OptimizedCacheManager:
             ]
             for key in expired_keys:
                 del self._azimuth_elevation_cache[key]
-            
+
             # Limit cache size
             if len(self._position_cache) > self._max_cache_size:
                 # Remove oldest entries
                 sorted_items = sorted(self._position_cache.items(), key=lambda x: x[1][1])
                 for key, _ in sorted_items[:len(self._position_cache) - self._max_cache_size]:
                     del self._position_cache[key]
-    
+
     def get_cached_positions(self, date):
         """Get positions with caching"""
         cache_key = date.isoformat()
-        
+
         with self._cache_lock:
             if cache_key in self._position_cache:
                 data, timestamp = self._position_cache[cache_key]
                 if time.time() - timestamp < self._cache_ttl:
                     return data
-        
+
         # Calculate positions
         positions = []
         positions += self.waas_cache.get_positions(date)
         positions += self.gps_cache.get_positions(date)
         positions += self.galileo_cache.get_positions(date)
         positions += self.beidou_cache.get_positions(date)
-        
+
         # Cache the result
         with self._cache_lock:
             self._position_cache[cache_key] = (positions, time.time())
-        
+
         return positions
-    
+
     def get_cached_catalog_list(self, date, lat, lon, alt, elevation):
         """Get catalog list with caching and optimization"""
         cache_key = f"{date.isoformat()}_{lat}_{lon}_{alt}_{elevation}"
-        
+
         with self._cache_lock:
             if cache_key in self._azimuth_elevation_cache:
                 data, timestamp = self._azimuth_elevation_cache[cache_key]
                 if time.time() - timestamp < self._cache_ttl:
                     return data
-        
+
         # Calculate catalog data using vectorized approach
         catalog = []
-        
+
         # Get ephemeris objects and use vectorized processing
         try:
             waas_eph = self.waas_cache.get_object(date)
             catalog += get_az_el_optimized(waas_eph.satellites, date, lat, lon, alt, elevation, waas_eph.jansky)
         except Exception:
             catalog += self.waas_cache.get_az_el(date, lat, lon, alt, elevation)
-            
+
         try:
             gps_eph = self.gps_cache.get_object(date)
             catalog += get_az_el_optimized(gps_eph.satellites, date, lat, lon, alt, elevation, gps_eph.jansky)
         except Exception:
             catalog += self.gps_cache.get_az_el(date, lat, lon, alt, elevation)
-            
+
         try:
             galileo_eph = self.galileo_cache.get_object(date)
             catalog += get_az_el_optimized(galileo_eph.satellites, date, lat, lon, alt, elevation, galileo_eph.jansky)
         except Exception:
             catalog += self.galileo_cache.get_az_el(date, lat, lon, alt, elevation)
-            
+
         try:
             beidou_eph = self.beidou_cache.get_object(date)
             catalog += get_az_el_optimized(beidou_eph.satellites, date, lat, lon, alt, elevation, beidou_eph.jansky)
         except Exception:
             catalog += self.beidou_cache.get_az_el(date, lat, lon, alt, elevation)
-        
+
         # Sun calculations (keep as-is since it's just one object)
         catalog += self.sun.get_az_el(date, lat, lon, alt, elevation)
-        
+
         # Cache the result
         with self._cache_lock:
             self._azimuth_elevation_cache[cache_key] = (catalog, time.time())
-        
+
         return catalog
-    
+
     async def get_bulk_catalog_async(self, dates, lat, lon, alt, elevation):
         """Get bulk catalog data using async processing"""
         loop = asyncio.get_event_loop()
-        
+
         # Create tasks for parallel processing
         tasks = []
         for date in dates:
             task = loop.run_in_executor(
-                None, 
-                self.get_cached_catalog_list, 
+                None,
+                self.get_cached_catalog_list,
                 date, lat, lon, alt, elevation
             )
             tasks.append(task)
-        
+
         # Wait for all tasks to complete
         results = await asyncio.gather(*tasks)
         return results
@@ -484,11 +484,11 @@ def process_bulk_dates_vectorized(dates_param, lat, lon, alt, elevation):
     """Process bulk dates using vectorized operations where possible"""
     # Parse all dates at once
     dates = [parse_date_cached(ts) for ts in dates_param]
-    
+
     # Use async processing for I/O bound operations
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    
+
     try:
         results = loop.run_until_complete(
             cache_manager.get_bulk_catalog_async(dates, lat, lon, alt, elevation)
@@ -504,48 +504,48 @@ def ecef_to_horizontal_vectorized(loc, positions_array):
     """
     if len(positions_array) == 0:
         return np.array([]), np.array([]), np.array([])
-    
+
     # Extract coordinates
     x_coords = positions_array[:, 0]
     y_coords = positions_array[:, 1]
     z_coords = positions_array[:, 2]
-    
+
     # Get location ECEF coordinates using correct method
     loc_ecef = loc.get_ecef()
     loc_x, loc_y, loc_z = loc_ecef[0], loc_ecef[1], loc_ecef[2]
-    
+
     # Convert to relative coordinates
     dx = x_coords - loc_x
     dy = y_coords - loc_y
     dz = z_coords - loc_z
-    
+
     # Get location parameters using correct methods
     lat_rad = np.radians(loc.latitude_deg())
     lon_rad = np.radians(loc.longitude_deg())
-    
+
     # Precompute trigonometric values
     sin_lat = np.sin(lat_rad)
     cos_lat = np.cos(lat_rad)
     sin_lon = np.sin(lon_rad)
     cos_lon = np.cos(lon_rad)
-    
+
     # Transform to local tangent plane (East-North-Up) - vectorized
     east = -sin_lon * dx + cos_lon * dy
     north = -sin_lat * cos_lon * dx - sin_lat * sin_lon * dy + cos_lat * dz
     up = cos_lat * cos_lon * dx + cos_lat * sin_lon * dy + sin_lat * dz
-    
+
     # Calculate range, elevation, azimuth - vectorized
     range_m = np.sqrt(dx*dx + dy*dy + dz*dz)
     elevation_rad = np.arcsin(np.clip(up / range_m, -1, 1))  # Clip to avoid numerical errors
     azimuth_rad = np.arctan2(east, north)
-    
+
     # Convert to degrees
     elevation_deg = np.degrees(elevation_rad)
     azimuth_deg = np.degrees(azimuth_rad)
-    
+
     # Ensure azimuth is 0-360
     azimuth_deg = np.where(azimuth_deg < 0, azimuth_deg + 360, azimuth_deg)
-    
+
     return range_m, elevation_deg, azimuth_deg
 
 def get_az_el_optimized(satellites, date, lat, lon, alt, elevation, jansky):
@@ -555,14 +555,14 @@ def get_az_el_optimized(satellites, date, lat, lon, alt, elevation, jansky):
     """
     if not satellites:
         return []
-    
+
     # Create location object once
     loc = location.Location(lat, lon, alt)
-    
+
     # Get all satellite positions in one pass
     positions = []
     names = []
-    
+
     for sv in satellites:
         try:
             pos, velocity = sv.get_position(date)
@@ -570,22 +570,22 @@ def get_az_el_optimized(satellites, date, lat, lon, alt, elevation, jansky):
             names.append(sv.name)
         except Exception:
             continue
-    
+
     if not positions:
         return []
-    
+
     # Convert to numpy array for vectorized processing
     positions_array = np.array(positions)
-    
+
     # VECTORIZED coordinate transformation - key optimization!
     try:
         ranges, elevations, azimuths = ecef_to_horizontal_vectorized(loc, positions_array)
-        
+
         # Vectorized rounding and filtering
         elevations_rounded = np.round(elevations, decimals=6)
         azimuths_rounded = np.round(azimuths, decimals=6)
         ranges_rounded = np.round(ranges, decimals=1)
-        
+
         # Build results using vectorized filtering
         results = []
         for i, (name, r, el, az) in enumerate(zip(names, ranges_rounded, elevations_rounded, azimuths_rounded)):
@@ -597,9 +597,9 @@ def get_az_el_optimized(satellites, date, lat, lon, alt, elevation, jansky):
                     'az': az,
                     'jy': jansky
                 })
-        
+
         return results
-        
+
     except Exception as e:
         # Fallback to individual processing if vectorization fails
         results = []
@@ -608,7 +608,7 @@ def get_az_el_optimized(satellites, date, lat, lon, alt, elevation, jansky):
                 _r, _el, _az = loc.ecef_to_horizontal(pos[0], pos[1], pos[2])
                 el, az = np.round([_el.to_degrees(), _az.to_degrees()], decimals=6)
                 r = np.round(_r, decimals=1)
-                
+
                 if el >= elevation:
                     results.append({
                         'name': name,
@@ -619,7 +619,7 @@ def get_az_el_optimized(satellites, date, lat, lon, alt, elevation, jansky):
                     })
             except Exception:
                 continue
-        
+
         return results
 
 def get_az_el_vectorized(satellites, date, lat, lon, alt, elevation, jansky):
@@ -640,10 +640,10 @@ def register_v2_api(app):
     """Register V2 API with the main Flask app"""
     # Add profiling middleware
     ProfilingMiddleware(app)
-    
+
     # Define V2 endpoints with identical interface to V1 but optimized internals
     @app.route('/v2/catalog', methods=['GET'])
-    @profile_endpoint(include_system_metrics=True)
+    @profile_endpoint(include_system_metrics=True, profile_code=True)
     @v2_profile_decorator
     def get_catalog_v2():
         """V2 catalog endpoint - identical interface to V1 with caching optimizations"""
@@ -651,19 +651,19 @@ def register_v2_api(app):
             date = parse_request_date_optimized(request)
             lat = angle.from_dms(float(get_required_parameter_optimized(request, 'lat')))
             lon = angle.from_dms(float(get_required_parameter_optimized(request, 'lon')))
-            
+
             elevation = float(request.args.get('elevation', 0.0))
             alt = float(request.args.get('alt', 0.0))
-            
+
             # Use optimized cache manager but return same format as V1
             ret = cache_manager.get_cached_catalog_list(date, lat, lon, alt, elevation)
             return jsonify(ret)
-            
+
         except Exception as err:
             return f"Exception: {err}"
 
     @app.route('/v2/position', methods=['GET'])
-    @profile_endpoint(include_system_metrics=True)
+    @profile_endpoint(include_system_metrics=True, profile_code=True)
     @v2_profile_decorator
     def get_position_v2():
         """V2 position endpoint - identical interface to V1 with caching optimizations"""
@@ -678,7 +678,7 @@ def register_v2_api(app):
             return jsonify({"error": ret, "traceback": lines})
 
     @app.route('/v2/bulk_az_el', methods=['POST'])
-    @profile_endpoint(include_system_metrics=True)
+    @profile_endpoint(include_system_metrics=True, profile_code=True)
     @v2_profile_decorator
     def get_bulk_az_el_v2():
         """V2 bulk endpoint - identical interface to V1 with vectorized optimizations"""
@@ -688,12 +688,12 @@ def register_v2_api(app):
 
         try:
             request_data = request.json
-            
+
             dates_param = request_data['dates']
             lat = angle.from_dms(float(request_data['lat']))
             lon = angle.from_dms(float(request_data['lon']))
             alt = float(request_data['alt'])
-            
+
             try:
                 elevation = float(request_data['elevation'])
             except Exception:
@@ -701,7 +701,7 @@ def register_v2_api(app):
 
             # Use optimized vectorized processing but return same format as V1
             dates, az_el_results = process_bulk_dates_vectorized(dates_param, lat, lon, alt, elevation)
-            
+
             res = {
                 'lat': lat.to_degrees(),
                 'lon': lon.to_degrees(),
@@ -752,7 +752,7 @@ def register_v2_api(app):
             })
         except Exception as err:
             return jsonify({"status": "unhealthy", "error": str(err)}), 500
-    
+
     # Add comparison endpoints to main app
     @app.route('/compare/catalog', methods=['GET'])
     @profile_endpoint(include_system_metrics=True)
@@ -760,26 +760,26 @@ def register_v2_api(app):
         """Compare performance between V1 and V2 catalog endpoints"""
         import requests
         import time
-        
+
         try:
             # Get parameters
             lat = request.args.get('lat', -45.85)
             lon = request.args.get('lon', 170.54)
             elevation = request.args.get('elevation', 0.0)
-            
+
             base_url = request.url_root.rstrip('/')
             params = {'lat': lat, 'lon': lon, 'elevation': elevation}
-            
+
             # Test V1
             start_time = time.time()
             v1_response = requests.get(f"{base_url}/catalog", params=params)
             v1_duration = time.time() - start_time
-            
+
             # Test V2
             start_time = time.time()
             v2_response = requests.get(f"{base_url}/v2/catalog", params=params)
             v2_duration = time.time() - start_time
-            
+
             return jsonify({
                 'v1': {
                     'duration': v1_duration,
@@ -796,7 +796,7 @@ def register_v2_api(app):
                     'time_saved_ms': (v1_duration - v2_duration) * 1000
                 }
             })
-            
+
         except Exception as err:
             return jsonify({"error": str(err)}), 500
 
@@ -805,7 +805,7 @@ def register_v2_api(app):
     def profile_endpoint_detailed(endpoint_name):
         """
         Profile specific endpoints with cProfile and return detailed timing data
-        
+
         Supported endpoints:
         - catalog: /v2/profile/catalog?lat=-45.85&lon=170.54&elevation=0&alt=0
         - position: /v2/profile/position
@@ -816,15 +816,15 @@ def register_v2_api(app):
         import io
         import json
         import time
-        
+
         try:
             # Create profiler
             pr = cProfile.Profile()
-            
+
             # Profile the request
             start_time = time.time()
             pr.enable()
-            
+
             if endpoint_name == 'catalog' and request.method == 'GET':
                 result = get_catalog_v2()
             elif endpoint_name == 'position' and request.method == 'GET':
@@ -833,10 +833,10 @@ def register_v2_api(app):
                 result = get_bulk_az_el_v2()
             else:
                 return jsonify({"error": f"Unsupported endpoint: {endpoint_name} with method {request.method}"}), 400
-            
+
             pr.disable()
             end_time = time.time()
-            
+
             # Get the actual response data
             if hasattr(result, 'get_json'):
                 response_data = result.get_json()
@@ -844,19 +844,19 @@ def register_v2_api(app):
             else:
                 response_data = result
                 status_code = 200
-            
+
             # Capture profiling stats
             s = io.StringIO()
             ps = pstats.Stats(pr, stream=s)
             ps.sort_stats('tottime')
             ps.print_stats(20)  # Top 20 functions
             profile_text = s.getvalue()
-            
+
             # Parse top functions for structured data
             lines = profile_text.split('\n')
             top_functions = []
             in_stats = False
-            
+
             for line in lines:
                 if 'tottime' in line and 'percall' in line:
                     in_stats = True
@@ -876,12 +876,12 @@ def register_v2_api(app):
                             })
                         except (ValueError, IndexError):
                             continue
-            
+
             # Calculate serialization time
             serialization_start = time.time()
             json_response = json.dumps(response_data)
             serialization_time = time.time() - serialization_start
-            
+
             # Build comprehensive profile response
             profile_response = {
                 'endpoint': endpoint_name,
@@ -903,9 +903,9 @@ def register_v2_api(app):
                 'cache_stats': cache_manager.get_cache_stats() if 'cache_manager' in globals() else {},
                 'request_params': dict(request.args) if request.method == 'GET' else request.get_json()
             }
-            
+
             return jsonify(profile_response)
-            
+
         except Exception as err:
             import traceback
             return jsonify({
@@ -921,48 +921,48 @@ def register_v2_api(app):
         """
         import requests
         import time
-        
+
         try:
             # Determine base URL (assume same host/port)
             base_url = request.url_root.rstrip('/')
-            
+
             # Profile V2 endpoint
             v2_url = f"{base_url}/v2/profile/{endpoint_name}"
             v2_start = time.time()
-            
+
             if request.method == 'GET':
                 v2_response = requests.get(v2_url, params=request.args, timeout=30)
             else:
                 v2_response = requests.post(v2_url, json=request.get_json(), timeout=30)
-            
+
             v2_end = time.time()
             v2_profile_data = v2_response.json() if v2_response.status_code == 200 else {}
-            
+
             # Profile V1 endpoint (create equivalent call)
             v1_mapping = {
                 'catalog': '/catalog',
-                'position': '/position', 
+                'position': '/position',
                 'bulk_az_el': '/bulk_az_el'
             }
-            
+
             if endpoint_name not in v1_mapping:
                 return jsonify({"error": f"No V1 equivalent for {endpoint_name}"}), 400
-            
+
             v1_url = f"{base_url}{v1_mapping[endpoint_name]}"
             v1_start = time.time()
-            
+
             if request.method == 'GET':
                 v1_response = requests.get(v1_url, params=request.args, timeout=30)
             else:
                 v1_response = requests.post(v1_url, json=request.get_json(), timeout=30)
-            
+
             v1_end = time.time()
-            
+
             # Calculate metrics
             v1_duration = v1_end - v1_start
             v2_duration = v2_end - v2_start
             v2_computation_time = v2_profile_data.get('timing', {}).get('computation_time_ms', 0) / 1000
-            
+
             comparison = {
                 'endpoint': endpoint_name,
                 'v1': {
@@ -985,20 +985,20 @@ def register_v2_api(app):
                 },
                 'bottleneck_analysis': {
                     'v2_top_functions': v2_profile_data.get('performance_profile', {}).get('top_functions', [])[:5],
-                    'serialization_overhead_percent': (v2_profile_data.get('timing', {}).get('serialization_time_ms', 0) / 
+                    'serialization_overhead_percent': (v2_profile_data.get('timing', {}).get('serialization_time_ms', 0) /
                                                      v2_profile_data.get('timing', {}).get('total_time_ms', 1)) * 100
                 }
             }
-            
+
             return jsonify(comparison)
-            
+
         except Exception as err:
             import traceback
             return jsonify({
                 "error": str(err),
                 "traceback": traceback.format_exc()
             }), 500
-    
+
     return app
 
 # Performance optimization recommendations based on profiling
