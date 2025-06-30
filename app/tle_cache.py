@@ -12,7 +12,7 @@ import threading
 from collections import OrderedDict
 from functools import lru_cache
 import hashlib
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple
 from sgp4.earth_gravity import wgs84
 from sgp4.io import twoline2rv
 from sgp4.model import Satellite

@@ -3,27 +3,57 @@
 # License GPL v3
 
 services:
-    object-position-server:
-        build: 
+    # object-position-server:
+    #     build:
+    #         context: .
+    #     ports:
+    #         - 8876:8876
+    #     restart: unless-stopped
+    #     environment:
+    #         - FLASK_DEBUG=0
+    #     volumes:
+    #         - ~/catalog_cache:/app/orbit_data
+    #     logging:
+    #         driver: "json-file"
+    #         options:
+    #             max-file: "2"
+    #             max-size: "1m"
+
+    fastapi-v2-server:
+        build:
             context: .
+            dockerfile: Dockerfile.fastapi
         ports:
-            - 8876:8876
+            - 8879:8877
         restart: unless-stopped
-        environment:
-            - FLASK_DEBUG=0
         volumes:
             - ~/catalog_cache:/app/orbit_data
+            - ./app:/app/app
+        command:
+            [
+                "uvicorn",
+                "fastapi_v2:app",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "8877",
+                "--loop",
+                "uvloop",
+                "--access-log",
+                "--reload",
+                "--workers",
+                "1",
+            ]
         logging:
             driver: "json-file"
             options:
                 max-file: "2"
                 max-size: "1m"
 
-    api_doc_server:
-        build:
-            context: .
-            dockerfile: Dockerfile.apidoc 
-        ports: 
-            - 8877:80
-        restart: unless-stopped
-
+    # api_doc_server:
+    #     build:
+    #         context: .
+    #         dockerfile: Dockerfile.apidoc
+    #     ports:
+    #         - 8877:80
+    #     restart: unless-stopped

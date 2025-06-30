@@ -1,4 +1,5 @@
 # Git files
+.venv
 .git
 .gitignore
 

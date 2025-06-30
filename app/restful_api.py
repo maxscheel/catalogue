@@ -5,7 +5,7 @@
 
 from flask import Flask
 from flask import jsonify, request
-from flask_cors import CORS, cross_origin
+from flask_cors import CORS
 
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -16,7 +16,7 @@ import traceback
 import norad_cache
 from dateutil import parser
 import sun_object
-from profiling import profile_endpoint, ProfilingMiddleware, metrics
+from profiling import profile_endpoint, metrics
 from restful_api_v2 import register_v2_api
 
 waas_cache = norad_cache.NORADCache()

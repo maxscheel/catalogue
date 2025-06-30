@@ -10,13 +10,12 @@
 # 4. Memory-efficient operations
 
 import file_cache
-from tle_cache import get_tle_cache, parse_tle_cached
+from tle_cache import get_tle_cache
 from sgp4.earth_gravity import wgs84
 from sgp4.io import twoline2rv
 from tart.imaging import location
 import numpy as np
 import time
-from functools import lru_cache
 import threading
 
 

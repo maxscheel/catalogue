@@ -15,3 +15,11 @@ tart
 psutil
 aiohttp
 asyncio
+
+# FastAPI dependencies
+fastapi[standard]
+uvicorn[standard]
+uvloop
+pydantic
+python-multipart
+orjson

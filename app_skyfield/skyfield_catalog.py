@@ -5,7 +5,6 @@ from skyfield.api import load
 from skyfield.api import wgs84
 
 import os
-import re
 
 max_days = 1.0         # download again once 1 days old
 

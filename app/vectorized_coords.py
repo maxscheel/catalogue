@@ -14,10 +14,9 @@
 
 import numpy as np
 import time
-from typing import List, Tuple, Union
+from typing import List, Tuple
 from tart.util import angle
 from tart.imaging import location
-import tart.imaging.tart_util as tart_util
 
 
 class VectorizedCoordinateTransformer:
@@ -269,7 +268,7 @@ def benchmark_vectorization():
     time_saved = (avg_individual - avg_vectorized) * 1000
     
     # Verify results are similar (comprehensive accuracy testing)
-    print(f"\n🔍 Verifying results accuracy:")
+    print("\n🔍 Verifying results accuracy:")
     
     accuracy_results = []
     max_dist_diff = 0
@@ -321,7 +320,7 @@ def benchmark_vectorization():
     accuracy_ok = accuracy_rate >= 0.95 and max_dist_diff < 1000 and max_el_diff < 0.1 and max_az_diff < 0.1
     
     # Results
-    print(f"\n📊 PERFORMANCE COMPARISON:")
+    print("\n📊 PERFORMANCE COMPARISON:")
     print(f"  Individual avg:  {avg_individual*1000:.2f}ms")
     print(f"  Vectorized avg:  {avg_vectorized*1000:.2f}ms")
     print(f"  Speedup:         {speedup:.1f}x")
@@ -330,7 +329,7 @@ def benchmark_vectorization():
     print(f"  Accuracy:        {'✅ Good' if accuracy_ok else '❌ Poor'}")
     
     if not accuracy_ok:
-        print(f"\n⚠️  ACCURACY ISSUES DETECTED:")
+        print("\n⚠️  ACCURACY ISSUES DETECTED:")
         if accuracy_rate < 0.95:
             print(f"    - Only {accuracy_rate:.1%} of results are accurate")
         if max_dist_diff >= 1000:
@@ -342,17 +341,17 @@ def benchmark_vectorization():
     
     # Recommendation
     if improvement > 30 and accuracy_ok:
-        print(f"\n✅ RECOMMENDATION: Deploy vectorized coordinate transformations!")
+        print("\n✅ RECOMMENDATION: Deploy vectorized coordinate transformations!")
         print(f"   Expected API improvement: ~{improvement*0.24:.0f}% (coordinates are 24% of total time)")
         print(f"   Accuracy verified: {accuracy_rate:.1%} of results within tolerance")
     elif improvement > 10 and accuracy_ok:
         print(f"\n⚠️  RECOMMENDATION: Vectorization provides modest benefit ({improvement:.0f}%)")
         print(f"   Accuracy verified: {accuracy_rate:.1%} of results within tolerance")
     elif not accuracy_ok:
-        print(f"\n❌ RECOMMENDATION: Accuracy issues prevent deployment")
-        print(f"   Need to fix vectorization algorithm before use")
+        print("\n❌ RECOMMENDATION: Accuracy issues prevent deployment")
+        print("   Need to fix vectorization algorithm before use")
     else:
-        print(f"\n❌ RECOMMENDATION: Vectorization not beneficial")
+        print("\n❌ RECOMMENDATION: Vectorization not beneficial")
     
     return {
         'individual_avg_ms': avg_individual * 1000,

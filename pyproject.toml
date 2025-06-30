@@ -1,16 +1,5 @@
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
 
 [project]
-name = "catalogue-service"
-version = "1.0.0"
-description = "Object Position Server API for satellite catalogues"
-authors = [
-    {name = "Tim Molteno", email = "tim@elec.ac.nz"},
-]
-license = {text = "MIT"}
-requires-python = ">=3.10"
 dependencies = [
     "numpy",
     "matplotlib",
@@ -25,19 +14,26 @@ dependencies = [
     "astropy",
     "h5py",
     "tart",
+    "asyncio",
+    "psutil",
+
+    # FastAPI dependencies
+    "fastapi[standard]",
+    "uvloop",
+    "uvicorn[standard]",
+    "pydantic",
+    "python-multipart",
+    "orjson",
 ]
+name = "catalogue-service"
+version = "1.0.0"
+description = "Object Position Server API for satellite catalogues"
+authors = [{ name = "Tim Molteno", email = "tim@elec.ac.nz" }]
+license = { text = "MIT" }
+requires-python = ">=3.10"
 
 [project.optional-dependencies]
-dev = [
-    "pytest",
-    "pytest-cov",
-    "black",
-    "isort",
-    "flake8",
-]
-
-[tool.hatch.build.targets.wheel]
-packages = []
+dev = ["pytest", "pytest-cov", "black", "isort", "flake8"]
 
 [tool.black]
 line-length = 88

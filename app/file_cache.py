@@ -5,7 +5,6 @@ import urllib.request
 import os
 import traceback
 import logging
-import time
 import json
 
 import sky_object
@@ -98,11 +97,11 @@ class FileCache(sky_object.SkyObject):
             os.makedirs(os.path.dirname(local_file))
         except Exception:
             pass
-        
+
         # Check if we're currently banned
         if self.is_banned():
             raise RuntimeError("Currently banned from downloading. Using cached data.")
-        
+
         try:
             if (url in self.last_download_attempt):
                 print(f"Download Attempt: {self.last_download_attempt}")
@@ -124,13 +123,13 @@ class FileCache(sky_object.SkyObject):
         except urllib.error.HTTPError as err:
             logging.exception(err)
             self.last_download_attempt[url] = datetime.datetime.now()
-            
+
             # Handle 403 Forbidden specifically (rate limiting)
             if err.code == 403:
                 logging.error("403 Forbidden - Setting ban for 2.5 hours")
                 self.set_ban(hours=2.5)
                 raise RuntimeError("Rate limited by server. Ban file created.")
-            
+
             raise (err)
         except Exception as err:
             logging.exception(err)
@@ -157,7 +156,7 @@ class FileCache(sky_object.SkyObject):
             tb = traceback.format_exc()
             logging.error(tb)
             logging.error("Download failed. Looking for cached data...")
-            
+
             # First check if the current date file exists (maybe download failed but file exists)
             local_path = self.get_local_path(fname)
             if os.path.isfile(local_path):
@@ -166,7 +165,7 @@ class FileCache(sky_object.SkyObject):
                     return self.cache[fname]
                 except Exception as e:
                     logging.error(f"Failed to load existing file {local_path}: {e}")
-            
+
             # Try to find the most recent cached file
             cached_path, cached_fname = self.find_latest_cached_file(utc_date)
             if cached_path and cached_fname:
@@ -178,7 +177,7 @@ class FileCache(sky_object.SkyObject):
                     return self.cache[fname]
                 except Exception as e:
                     logging.error(f"Failed to load cached file {cached_path}: {e}")
-            
+
             # If all else fails, raise the original error
             logging.error("No cached data available, re-raising original error")
             raise error

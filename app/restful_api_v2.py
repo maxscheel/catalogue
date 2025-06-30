@@ -4,12 +4,10 @@
 # Author Max Scheel max@elec.ac.nz (c) 2025 - Performance Optimisations
 
 import asyncio
-import concurrent.futures
-from functools import lru_cache, wraps
+from functools import lru_cache
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 import threading
-from collections import defaultdict
 import numpy as np
 import cProfile
 import pstats
@@ -17,10 +15,7 @@ import io
 import json
 import os
 
-from flask import Flask, Blueprint
 from flask import jsonify, request
-from flask_cors import CORS, cross_origin
-from werkzeug.middleware.proxy_fix import ProxyFix
 
 import tart.util.utc as utc
 from tart.util import angle
@@ -30,110 +25,10 @@ import traceback
 import norad_cache
 from dateutil import parser
 import sun_object
-from profiling import profile_endpoint, ProfilingMiddleware, metrics
 
 # V2 Performance Profiling Configuration
 V2_PROFILING_ENABLED = os.environ.get('V2_PROFILE', 'false').lower() == 'true'
 V2_PROFILE_TOP_N = int(os.environ.get('V2_PROFILE_TOP_N', '10'))
-
-def v2_profile_decorator(func):
-    """Decorator to add cProfile data to V2 endpoint responses"""
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        if not V2_PROFILING_ENABLED:
-            return func(*args, **kwargs)
-
-        # Start profiling
-        pr = cProfile.Profile()
-        start_time = time.time()
-        pr.enable()
-
-        try:
-            # Execute the function
-            result = func(*args, **kwargs)
-
-            # Stop profiling
-            pr.disable()
-            end_time = time.time()
-
-            # Extract profiling data
-            s = io.StringIO()
-            ps = pstats.Stats(pr, stream=s)
-            ps.sort_stats('tottime')
-            ps.print_stats(V2_PROFILE_TOP_N)
-            profile_text = s.getvalue()
-
-            # Parse top functions
-            lines = profile_text.split('\n')
-            top_functions = []
-            in_stats = False
-
-            for line in lines:
-                if 'tottime' in line and 'percall' in line:
-                    in_stats = True
-                    continue
-                if in_stats and line.strip() and not line.startswith('   '):
-                    break
-                if in_stats and line.strip():
-                    parts = line.strip().split()
-                    if len(parts) >= 6:
-                        try:
-                            top_functions.append({
-                                'ncalls': int(parts[0]),
-                                'tottime': float(parts[1]),
-                                'percall': float(parts[2]),
-                                'cumtime': float(parts[3]),
-                                'function': ' '.join(parts[5:])
-                            })
-                        except (ValueError, IndexError):
-                            continue
-
-            # Get original response data
-            if hasattr(result, 'get_json'):
-                original_data = result.get_json()
-                status_code = result.status_code
-            else:
-                original_data = result.json if hasattr(result, 'json') else result
-                status_code = 200
-
-            # Calculate serialization time
-            serialization_start = time.time()
-            json_str = json.dumps(original_data)
-            serialization_time = time.time() - serialization_start
-
-            # Add profiling data to response
-            total_time = end_time - start_time
-            profiled_response = {
-                'data': original_data,
-                '_v2_profile': {
-                    'enabled': True,
-                    'timing': {
-                        'total_time_ms': total_time * 1000,
-                        'computation_time_ms': (total_time - serialization_time) * 1000,
-                        'serialization_time_ms': serialization_time * 1000,
-                        'serialization_percent': (serialization_time / total_time) * 100 if total_time > 0 else 0
-                    },
-                    'top_functions': top_functions[:5],  # Top 5 for response size
-                    'function_count': len(top_functions),
-                    'endpoint': func.__name__
-                }
-            }
-
-            return jsonify(profiled_response)
-
-        except Exception as e:
-            pr.disable()
-            # Return error with minimal profiling info
-            return jsonify({
-                'error': str(e),
-                '_v2_profile': {
-                    'enabled': True,
-                    'error': 'Profiling failed',
-                    'endpoint': func.__name__
-                }
-            }), 500
-
-    return wrapper
 
 # ==============================
 # OPTIMIZED CACHE MANAGEMENT
@@ -161,8 +56,8 @@ class OptimizedCacheManager:
         self._cache_lock = threading.RLock()
         self._position_cache = {}
         self._azimuth_elevation_cache = {}
-        self._cache_ttl = 300  # 5 minutes TTL
-        self._max_cache_size = 1000
+        self._cache_ttl = 900  # 15 minutes TTL
+        self._max_cache_size = 100000
 
         # Initialize caches with pre-loading
         self._init_caches()
@@ -179,112 +74,65 @@ class OptimizedCacheManager:
         self.beidou_cache = norad_cache.BeidouCache()
         self.sun = sun_object.SunObject()
 
-        # V2 Profiling Configuration
-        ENABLE_V2_PROFILING = os.environ.get('V2_PROFILING', 'true').lower() == 'true'
-
-        def v2_profile_middleware(f):
-            """Middleware to profile V2 endpoints and include data in response"""
-            @wraps(f)
-            def decorated_function(*args, **kwargs):
-                if not ENABLE_V2_PROFILING:
-                    return f(*args, **kwargs)
-
-                # Start profiling
-                pr = cProfile.Profile()
-                start_time = time.time()
-                pr.enable()
-
-                try:
-                    # Execute the endpoint
-                    result = f(*args, **kwargs)
-
-                    pr.disable()
-                    end_time = time.time()
-
-                    # Process profiling data
-                    s = io.StringIO()
-                    ps = pstats.Stats(pr, stream=s)
-                    ps.sort_stats('tottime')
-                    ps.print_stats(15)  # Top 15 functions
-                    profile_text = s.getvalue()
-
-                    # Parse top functions
-                    lines = profile_text.split('\n')
-                    top_functions = []
-                    in_stats = False
-
-                    for line in lines:
-                        if 'tottime' in line and 'percall' in line:
-                            in_stats = True
-                            continue
-                        if in_stats and line.strip() and not line.startswith('   '):
-                            break
-                        if in_stats and line.strip():
-                            parts = line.strip().split()
-                            if len(parts) >= 6:
-                                try:
-                                    top_functions.append({
-                                        'ncalls': int(parts[0]),
-                                        'tottime_ms': float(parts[1]) * 1000,
-                                        'percall_ms': float(parts[2]) * 1000,
-                                        'cumtime_ms': float(parts[3]) * 1000,
-                                        'function': ' '.join(parts[5:])[:80]  # Truncate long names
-                                    })
-                                except (ValueError, IndexError):
-                                    continue
-
-                    # Get the response data
-                    if hasattr(result, 'get_json'):
-                        response_data = result.get_json()
-                        status_code = result.status_code
-                    else:
-                        response_data = result.get_data(as_text=True)
-                        status_code = 200
-                        try:
-                            response_data = json.loads(response_data)
-                        except:
-                            pass
-
-                    # Calculate serialization time
-                    serialization_start = time.time()
-                    json_size = len(json.dumps(response_data))
-                    serialization_time = (time.time() - serialization_start) * 1000
-
-                    # Add profiling data to response
-                    total_time_ms = (end_time - start_time) * 1000
-
-                    if isinstance(response_data, dict):
-                        response_data['_v2_profile'] = {
-                            'total_time_ms': round(total_time_ms, 2),
-                            'serialization_time_ms': round(serialization_time, 2),
-                            'computation_time_ms': round(total_time_ms - serialization_time, 2),
-                            'response_size_bytes': json_size,
-                            'top_bottlenecks': top_functions[:5],
-                            'cache_stats': cache_manager.get_cache_stats() if 'cache_manager' in globals() else {},
-                            'endpoint': f.__name__
-                        }
-
-                    return jsonify(response_data) if not hasattr(result, 'get_json') else result
-
-                except Exception as e:
-                    pr.disable()
-                    # Don't let profiling errors break the endpoint
-                    return f(*args, **kwargs)
-
-            return decorated_function
-
         # Pre-warm caches with current data
         current_time = utc.now()
         self._preload_cache_data(current_time)
 
     def _preload_cache_data(self, date):
-        """Pre-load cache data for better performance"""
+        """Pre-load cache data for last 15 minutes and next minute at second intervals"""
+        from datetime import timedelta
         try:
-            # Pre-calculate positions for current time
-            self.waas_cache.get_positions(date)
-            self.gps_cache.get_positions(date)
-            self.galileo_cache.get_positions(date)
-            self.beidou_cache.get_positions(date)
+            start_time = (date - timedelta(minutes=1)).replace(microsecond=0)
+            end_time = (date + timedelta(minutes=1)).replace(microsecond=0)
+
+            # Check if current time is already in cache range - skip preload if so
+            cache_key = date.replace(microsecond=0).isoformat()
+            with self._cache_lock:
+                if cache_key in self._position_cache:
+                    data, timestamp = self._position_cache[cache_key]
+                    if time.time() - timestamp < self._cache_ttl:
+                        print(f"Cache already contains current time {date}, skipping preload")
+                        return
+
+            # Count cache state before preload
+            initial_cache_size = len(self._position_cache)
+            new_entries = 0
+
+            # Pre-calculate positions for every second in the range
+            current_time = start_time
+            while current_time <= end_time:
+                cache_key = current_time.isoformat()
+
+                # Only calculate if not already cached
+                with self._cache_lock:
+                    is_cached = cache_key in self._position_cache
+                    if is_cached:
+                        data, timestamp = self._position_cache[cache_key]
+                        is_fresh = time.time() - timestamp < self._cache_ttl
+                    else:
+                        is_fresh = False
+
+                if not is_cached or not is_fresh:
+                    # Only do expensive calculations for uncached/stale entries
+                    self.waas_cache.get_positions(current_time)
+                    self.gps_cache.get_positions(current_time)
+                    self.galileo_cache.get_positions(current_time)
+                    self.beidou_cache.get_positions(current_time)
+                    new_entries += 1
+
+                current_time += timedelta(seconds=1)
+
+            final_cache_size = len(self._position_cache)
+
+            # Get actual cache sizes from satellite caches
+            waas_size = len(getattr(self.waas_cache, 'cache', {}))
+            gps_size = len(getattr(self.gps_cache, 'cache', {}))
+            galileo_size = len(getattr(self.galileo_cache, 'cache', {}))
+            beidou_size = len(getattr(self.beidou_cache, 'cache', {}))
+            total_satellite_entries = waas_size + gps_size + galileo_size + beidou_size
+
+            print(f"Cache preloaded for 16-minute window: {start_time} to {end_time} - {new_entries} new entries calculated")
+            print(f"Satellite cache sizes: WAAS={waas_size}, GPS={gps_size}, Galileo={galileo_size}, Beidou={beidou_size}, Total={total_satellite_entries}")
         except Exception as e:
             print(f"Cache preload warning: {e}")
 
@@ -293,10 +141,13 @@ class OptimizedCacheManager:
         def refresh_worker():
             while True:
                 try:
-                    time.sleep(60)  # Refresh every minute
+                    time.sleep(30)  # Refresh every minute
+                    start = time.time()
                     current_time = utc.now()
                     self._cleanup_expired_cache()
                     self._preload_cache_data(current_time)
+                    duration = time.time() - start
+                    print(f"Cache refreshed in {duration:.2f} seconds")
                 except Exception as e:
                     print(f"Cache refresh error: {e}")
 
@@ -305,10 +156,10 @@ class OptimizedCacheManager:
 
     def _cleanup_expired_cache(self):
         """Clean up expired cache entries"""
-        with self._cache_lock:
-            current_time = time.time()
+        current_time = time.time()
 
-            # Clean position cache
+        # Clean position cache
+        with self._cache_lock:
             expired_keys = [
                 key for key, (data, timestamp) in self._position_cache.items()
                 if current_time - timestamp > self._cache_ttl
@@ -316,30 +167,44 @@ class OptimizedCacheManager:
             for key in expired_keys:
                 del self._position_cache[key]
 
-            # Clean az/el cache
-            expired_keys = [
+        # Clean azimuth/elevation cache
+        with self._cache_lock:
+            expired_keys_az_el = [
                 key for key, (data, timestamp) in self._azimuth_elevation_cache.items()
                 if current_time - timestamp > self._cache_ttl
             ]
-            for key in expired_keys:
+            for key in expired_keys_az_el:
                 del self._azimuth_elevation_cache[key]
 
-            # Limit cache size
+            # Also enforce max cache size
+            evicted_keys = []
             if len(self._position_cache) > self._max_cache_size:
                 # Remove oldest entries
                 sorted_items = sorted(self._position_cache.items(), key=lambda x: x[1][1])
                 for key, _ in sorted_items[:len(self._position_cache) - self._max_cache_size]:
                     del self._position_cache[key]
+                    evicted_keys.append(key)
+
+        if expired_keys or expired_keys_az_el or evicted_keys:
+            print(f"Cache cleanup: {len(expired_keys)} expired position entries, {len(expired_keys_az_el)} expired az/el entries, {len(evicted_keys)} evicted entries")
 
     def get_cached_positions(self, date):
         """Get positions with caching"""
-        cache_key = date.isoformat()
+        # Round to second for cache key
+        rounded_date = date.replace(microsecond=0)
+        cache_key = rounded_date.isoformat()
 
         with self._cache_lock:
             if cache_key in self._position_cache:
                 data, timestamp = self._position_cache[cache_key]
                 if time.time() - timestamp < self._cache_ttl:
+                    print(f"Cache hit! for positions on {rounded_date}, for {date}")
+
                     return data
+
+        # Log cache miss
+        print(f"Cache miss for positions on {rounded_date}, for {date}")
+
 
         # Calculate positions
         positions = []
@@ -356,6 +221,8 @@ class OptimizedCacheManager:
 
     def get_cached_catalog_list(self, date, lat, lon, alt, elevation):
         """Get catalog list with caching and optimization"""
+        # Round to second for cache key
+        date = date.replace(microsecond=0)
         cache_key = f"{date.isoformat()}_{lat}_{lon}_{alt}_{elevation}"
 
         with self._cache_lock:
@@ -364,33 +231,17 @@ class OptimizedCacheManager:
                 if time.time() - timestamp < self._cache_ttl:
                     return data
 
-        # Calculate catalog data using vectorized approach
         catalog = []
 
-        # Get ephemeris objects and use vectorized processing
-        try:
-            waas_eph = self.waas_cache.get_object(date)
-            catalog += get_az_el_optimized(waas_eph.satellites, date, lat, lon, alt, elevation, waas_eph.jansky)
-        except Exception:
-            catalog += self.waas_cache.get_az_el(date, lat, lon, alt, elevation)
+        waas_eph = self.waas_cache.get_object(date)
+        gps_eph = self.gps_cache.get_object(date)
+        galileo_eph = self.galileo_cache.get_object(date)
+        beidou_eph = self.beidou_cache.get_object(date)
 
-        try:
-            gps_eph = self.gps_cache.get_object(date)
-            catalog += get_az_el_optimized(gps_eph.satellites, date, lat, lon, alt, elevation, gps_eph.jansky)
-        except Exception:
-            catalog += self.gps_cache.get_az_el(date, lat, lon, alt, elevation)
-
-        try:
-            galileo_eph = self.galileo_cache.get_object(date)
-            catalog += get_az_el_optimized(galileo_eph.satellites, date, lat, lon, alt, elevation, galileo_eph.jansky)
-        except Exception:
-            catalog += self.galileo_cache.get_az_el(date, lat, lon, alt, elevation)
-
-        try:
-            beidou_eph = self.beidou_cache.get_object(date)
-            catalog += get_az_el_optimized(beidou_eph.satellites, date, lat, lon, alt, elevation, beidou_eph.jansky)
-        except Exception:
-            catalog += self.beidou_cache.get_az_el(date, lat, lon, alt, elevation)
+        catalog += get_az_el_optimized(gps_eph.satellites, date, lat, lon, alt, elevation, gps_eph.jansky)
+        catalog += get_az_el_optimized(waas_eph.satellites, date, lat, lon, alt, elevation, waas_eph.jansky)
+        catalog += get_az_el_optimized(galileo_eph.satellites, date, lat, lon, alt, elevation, galileo_eph.jansky)
+        catalog += get_az_el_optimized(beidou_eph.satellites, date, lat, lon, alt, elevation, beidou_eph.jansky)
 
         # Sun calculations (keep as-is since it's just one object)
         catalog += self.sun.get_az_el(date, lat, lon, alt, elevation)
@@ -422,12 +273,22 @@ class OptimizedCacheManager:
     def get_cache_stats(self):
         """Get cache statistics"""
         with self._cache_lock:
+            # Get stats from individual satellite caches
+            waas_cache_size = len(getattr(self.waas_cache, 'cache', {}))
+            gps_cache_size = len(getattr(self.gps_cache, 'cache', {}))
+            galileo_cache_size = len(getattr(self.galileo_cache, 'cache', {}))
+            beidou_cache_size = len(getattr(self.beidou_cache, 'cache', {}))
+
             return {
-                'position_cache_size': len(self._position_cache),
-                'azimuth_elevation_cache_size': len(self._azimuth_elevation_cache),
-                'total_size': len(self._position_cache) + len(self._azimuth_elevation_cache),
-                'cache_ttl_seconds': self._cache_ttl,
-                'max_cache_size': self._max_cache_size
+                "position_cache_size": len(self._position_cache),
+                "azimuth_elevation_cache_size": len(self._azimuth_elevation_cache),
+                "waas_cache_size": waas_cache_size,
+                "gps_cache_size": gps_cache_size,
+                "galileo_cache_size": galileo_cache_size,
+                "beidou_cache_size": beidou_cache_size,
+                "total_satellite_cache_entries": waas_cache_size + gps_cache_size + galileo_cache_size + beidou_cache_size,
+                "cache_ttl": self._cache_ttl,
+                "max_cache_size": self._max_cache_size
             }
 
     def clear_all_caches(self):
@@ -446,13 +307,13 @@ cache_manager = OptimizedCacheManager()
 
 @lru_cache(maxsize=1000)
 def parse_date_cached(date_string):
-    """Cached date parsing for better performance"""
+    """Cached date parsing for better performance - rounds to second"""
     try:
         if date_string == "now":
-            return utc.now()
+            return utc.now().replace(microsecond=0)
         else:
             dt = parser.parse(date_string.replace(' ', '+'))
-            return utc.to_utc(dt)
+            return utc.to_utc(dt).replace(microsecond=0)
     except Exception as err:
         raise Exception("Invalid Date '{}' {}".format(date_string, err))
 
@@ -600,7 +461,7 @@ def get_az_el_optimized(satellites, date, lat, lon, alt, elevation, jansky):
 
         return results
 
-    except Exception as e:
+    except Exception:
         # Fallback to individual processing if vectorization fails
         results = []
         for pos, name in zip(positions, names):
@@ -638,8 +499,6 @@ def get_az_el_vectorized(satellites, date, lat, lon, alt, elevation, jansky):
 
 def register_v2_api(app):
     """Register V2 API with the main Flask app"""
-    # Add profiling middleware
-    ProfilingMiddleware(app)
 
     # Define V2 endpoints with identical interface to V1 but optimized internals
     @app.route('/v2/catalog', methods=['GET'])
@@ -678,8 +537,6 @@ def register_v2_api(app):
             return jsonify({"error": ret, "traceback": lines})
 
     @app.route('/v2/bulk_az_el', methods=['POST'])
-    @profile_endpoint(include_system_metrics=True, profile_code=True)
-    @v2_profile_decorator
     def get_bulk_az_el_v2():
         """V2 bulk endpoint - identical interface to V1 with vectorized optimizations"""
         content_type = request.headers.get('Content-Type')
@@ -811,10 +668,6 @@ def register_v2_api(app):
         - position: /v2/profile/position
         - bulk_az_el: /v2/profile/bulk_az_el (POST with JSON data)
         """
-        import cProfile
-        import pstats
-        import io
-        import json
         import time
 
         try:
