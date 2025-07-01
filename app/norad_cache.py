@@ -31,7 +31,7 @@ class Sp4Ephemeris:
         return pos, vel
 
     def get_az_el(self, date, loc):
-        pos, velocity = self.get_position(date)
+        pos, _ = self.get_position(date)
         return loc.ecef_to_horizontal(pos[0], pos[1], pos[2])
 
 

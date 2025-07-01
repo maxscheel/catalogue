@@ -2,6 +2,7 @@
 .venv
 .git
 .gitignore
+app/orbit_data
 
 # Python cache files
 __pycache__/

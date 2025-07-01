@@ -69,8 +69,7 @@ class OptimizedCacheManager:
     def _preload_cache_data(self, date):
         """Pre-load cache data for last 1 minutes and next minute at second intervals"""
         try:
-            start_time = (date - timedelta(minutes=1)).replace(microsecond=0)
-            end_time = (date + timedelta(minutes=1)).replace(microsecond=0)
+            date = date.replace(microsecond=0)
 
             # Check if current time is already in cache range - skip preload if so
             cache_key = date.replace(microsecond=0).isoformat()
@@ -83,43 +82,24 @@ class OptimizedCacheManager:
 
             # Count cache state before preload
             initial_cache_size = len(self._position_cache)
-            new_entries = 0
 
             # Pre-calculate positions for every second in the range
-            current_time = start_time
-            while current_time <= end_time:
-                cache_key = current_time.isoformat()
-
-                # Only calculate if not already cached
-                with self._cache_lock:
-                    is_cached = cache_key in self._position_cache
-                    if is_cached:
-                        data, timestamp = self._position_cache[cache_key]
-                        is_fresh = time.time() - timestamp < self._cache_ttl
-                    else:
-                        is_fresh = False
-
-                if not is_cached or not is_fresh:
-                    # Only do expensive calculations for uncached/stale entries
-                    self.waas_cache.get_positions(current_time)
-                    self.gps_cache.get_positions(current_time)
-                    self.galileo_cache.get_positions(current_time)
-                    self.beidou_cache.get_positions(current_time)
-                    new_entries += 1
-
-                current_time += timedelta(seconds=1)
+            self.waas_cache.get_positions(date)
+            self.gps_cache.get_positions(date)
+            self.galileo_cache.get_positions(date)
+            self.beidou_cache.get_positions(date)
 
             final_cache_size = len(self._position_cache)
 
-            # Get actual cache sizes from satellite caches
-            waas_size = len(getattr(self.waas_cache, 'cache', {}))
-            gps_size = len(getattr(self.gps_cache, 'cache', {}))
-            galileo_size = len(getattr(self.galileo_cache, 'cache', {}))
-            beidou_size = len(getattr(self.beidou_cache, 'cache', {}))
-            total_satellite_entries = waas_size + gps_size + galileo_size + beidou_size
+            start_date = date
+            end_date = date + timedelta(minutes=1)
+            interval = timedelta(seconds=1)
+            while start_date < end_date:
+                svs = self.waas_cache.get_object(start_date).satellites + self.gps_cache.get_object(start_date).satellites + self.galileo_cache.get_object(start_date).satellites + self.beidou_cache.get_object(start_date).satellites
+                for sv in svs:
+                    get_cached_sv_position(sv , start_date)
+                start_date += interval
 
-            print(f"Cache preloaded for 16-minute window: {start_time} to {end_time} - {new_entries} new entries calculated")
-            print(f"Satellite cache sizes: WAAS={waas_size}, GPS={gps_size}, Galileo={galileo_size}, Beidou={beidou_size}, Total={total_satellite_entries}")
         except Exception as e:
             print(f"Cache preload warning: {e}")
 
@@ -128,7 +108,7 @@ class OptimizedCacheManager:
         def refresh_worker():
             while True:
                 try:
-                    time.sleep(30)  # Refresh every minute
+                    time.sleep(30)  # Refresh every 30s
                     start = time.time()
                     current_time = utc.now()
                     self._cleanup_expired_cache()
@@ -218,22 +198,24 @@ class OptimizedCacheManager:
                 if time.time() - timestamp < self._cache_ttl:
                     return data
 
-        catalog = []
 
         gps_eph = self.gps_cache.get_object(date)
         waas_eph = self.waas_cache.get_object(date)
         beidou_eph = self.beidou_cache.get_object(date)
         galileo_eph = self.galileo_cache.get_object(date)
 
-        # catalog += get_az_el_optimized(gps_eph.satellites, date, lat, lon, alt, elevation, gps_eph.jansky)
-        # catalog += get_az_el_optimized(waas_eph.satellites, date, lat, lon, alt, elevation, waas_eph.jansky)
-        # catalog += get_az_el_optimized(beidou_eph.satellites, date, lat, lon, alt, elevation, beidou_eph.jansky)
-        # catalog += get_az_el_optimized(galileo_eph.satellites, date, lat, lon, alt, elevation, galileo_eph.jansky)
+        comp = galileo_eph.satellites + waas_eph.satellites + beidou_eph.satellites + galileo_eph.satellites
 
-        comp = galileo_eph.satellites+ waas_eph.satellites + beidou_eph.satellites + galileo_eph.satellites
-        catalog += get_az_el_optimized(comp, date, lat, lon, alt, elevation, gps_eph.jansky)
+        jy_list = (galileo_eph.jansky,) * len(galileo_eph.satellites)
+        jy_list += (waas_eph.jansky,) * len(waas_eph.satellites)
+        jy_list += (beidou_eph.jansky,) * len(beidou_eph.satellites)
+        jy_list += (galileo_eph.jansky,) * len(galileo_eph.satellites)
+        res = get_az_el_optimized(comp, date, lat, lon, alt)
 
+        catalog = []
+        catalog += [{'name': pair[0].name, 'js': pair[1]} | pair[2]  for pair in zip(comp, jy_list, res)]
         catalog += self.sun.get_az_el(date, lat, lon, alt, elevation)
+        catalog = list(filter(lambda x: x['el'] > elevation, catalog))
 
         # Cache the result
         with self._cache_lock:
@@ -259,35 +241,6 @@ class OptimizedCacheManager:
         results = await asyncio.gather(*tasks)
         return results
 
-    def get_cache_stats(self):
-        """Get cache statistics"""
-        with self._cache_lock:
-            # Get stats from individual satellite caches
-            waas_cache_size = len(getattr(self.waas_cache, 'cache', {}))
-            gps_cache_size = len(getattr(self.gps_cache, 'cache', {}))
-            galileo_cache_size = len(getattr(self.galileo_cache, 'cache', {}))
-            beidou_cache_size = len(getattr(self.beidou_cache, 'cache', {}))
-
-            return {
-                "position_cache_size": len(self._position_cache),
-                "azimuth_elevation_cache_size": len(self._azimuth_elevation_cache),
-                "waas_cache_size": waas_cache_size,
-                "gps_cache_size": gps_cache_size,
-                "galileo_cache_size": galileo_cache_size,
-                "beidou_cache_size": beidou_cache_size,
-                "total_satellite_cache_entries": waas_cache_size + gps_cache_size + galileo_cache_size + beidou_cache_size,
-                "cache_ttl": self._cache_ttl,
-                "max_cache_size": self._max_cache_size
-            }
-
-    def clear_all_caches(self):
-        """Clear all caches"""
-        with self._cache_lock:
-            self._position_cache.clear()
-            self._azimuth_elevation_cache.clear()
-
-
-# Global cache manager instance
 cache_manager = OptimizedCacheManager()
 
 # ==============================
@@ -305,26 +258,6 @@ def parse_date_cached(date_string):
             return utc.to_utc(dt).replace(microsecond=0)
     except Exception as err:
         raise Exception("Invalid Date '{}' {}".format(date_string, err))
-
-def parse_request_date_optimized(request):
-    """Optimized date parsing with validation"""
-    if 'date' in request.args:
-        date_string = request.args.get('date')
-        d = parse_date_cached(date_string)
-    else:
-        d = utc.now()
-
-    current_date = utc.now()
-    if ((d - current_date).total_seconds() > 86400.0):
-        raise Exception(f"Date > 24 hours in future. {current_date} {d}")
-    return d
-
-def get_required_parameter_optimized(request, param_name):
-    """Optimized parameter extraction"""
-    value = request.args.get(param_name)
-    if value is None:
-        raise Exception(f"Missing Required Parameter '{param_name}'")
-    return value
 
 def process_bulk_dates_vectorized(dates_param, lat, lon, alt, elevation):
     """Process bulk dates using vectorized operations where possible"""
@@ -394,7 +327,15 @@ def ecef_to_horizontal_vectorized(loc, positions_array):
 
     return range_m, elevation_deg, azimuth_deg
 
-def get_az_el_optimized(satellites, date, lat, lon, alt, elevation, jansky):
+@lru_cache(maxsize=100000)
+def get_cached_sv_position(sv, date):
+    try:
+        pos, _ = sv.get_position(date)
+        return pos
+    except Exception:
+        return None
+
+def get_az_el_optimized(satellites, date, lat, lon, alt):
     """
     Optimized get_az_el using fully vectorized coordinate transformations.
     Eliminates the 137 individual ecef_to_horizontal calls.
@@ -402,18 +343,13 @@ def get_az_el_optimized(satellites, date, lat, lon, alt, elevation, jansky):
     if not satellites:
         return []
 
-    # Create location object once
-    loc = location.Location(lat, lon, alt)
-
     # Get all satellite positions in one pass
-    positions = []
-    names = []
 
+    positions = []
     for sv in satellites:
         try:
-            pos, velocity = sv.get_position(date)
+            pos = get_cached_sv_position(sv, date)
             positions.append(pos)
-            names.append(sv.name)
         except Exception:
             continue
 
@@ -424,6 +360,9 @@ def get_az_el_optimized(satellites, date, lat, lon, alt, elevation, jansky):
     positions_array = np.array(positions)
 
     # VECTORIZED coordinate transformation - key optimization!
+    # Create location object once
+    loc = location.Location(lat, lon, alt)
+
     ranges, elevations, azimuths = ecef_to_horizontal_vectorized(loc, positions_array)
 
     # Vectorized rounding and filtering
@@ -432,15 +371,4 @@ def get_az_el_optimized(satellites, date, lat, lon, alt, elevation, jansky):
     ranges_rounded = np.round(ranges, decimals=1)
 
     # Build results using vectorized filtering
-    results = []
-    for i, (name, r, el, az) in enumerate(zip(names, ranges_rounded, elevations_rounded, azimuths_rounded)):
-        if el >= elevation:
-            results.append({
-                'name': name,
-                'r': r,
-                'el': el,
-                'az': az,
-                'jy': jansky
-            })
-
-    return results
+    return [{'r': r, 'el': el, 'az': az} for (r, el, az) in zip(ranges_rounded, elevations_rounded, azimuths_rounded)]

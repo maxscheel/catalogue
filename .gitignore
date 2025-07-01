@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
+app/orbit_data
 
 # C extensions
 *.so

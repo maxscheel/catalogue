@@ -1,7 +1,3 @@
-"""
-FastAPI V2 Clean - Dead code removed, cache warming kept
-"""
-
 # =============================================================================
 # CORE IMPORTS - Required for basic functionality
 # =============================================================================
@@ -47,11 +43,11 @@ cache_manager = None
 # FASTAPI APPLICATION SETUP
 # =============================================================================
 app = FastAPI(
-    title="Catalogue API V2 Clean",
-    description="High-performance satellite catalogue API - clean version",
-    version="2.0.0-clean",
-    docs_url="/v2/docs",
-    redoc_url="/v2/redoc"
+    title="Catalogue API V2",
+    description="Satellite catalogue API",
+    version="2.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc"
 )
 
 # CORS middleware - Required for cross-origin requests
@@ -68,7 +64,6 @@ app.add_middleware(
 # =============================================================================
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
-    """Basic request logging"""
     start_time = time.time()
     response = await call_next(request)
     process_time = (time.time() - start_time) * 1000
@@ -85,10 +80,7 @@ async def startup_event():
 
     # Set uvloop as the event loop policy
     asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-
-    # Initialize cache manager
     cache_manager = OptimizedCacheManager()
-    logger.info("FastAPI V2 Clean API initialized with uvloop and optimized caching")
 
 # =============================================================================
 # CORE API ENDPOINTS - Essential functionality

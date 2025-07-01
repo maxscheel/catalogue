@@ -2,28 +2,16 @@
 [project]
 dependencies = [
     "numpy",
-    "matplotlib",
     "python-dateutil",
-    "flask",
-    "flask-cors",
     "sgp4",
     "requests",
     "pytz",
-    "waitress",
-    "healpy",
-    "astropy",
-    "h5py",
     "tart",
-    "asyncio",
-    "psutil",
 
     # FastAPI dependencies
-    "fastapi[standard]",
-    "uvloop",
+    "fastapi",
     "uvicorn[standard]",
-    "pydantic",
-    "python-multipart",
-    "orjson",
+    "uvloop",
 ]
 name = "catalogue-service"
 version = "1.0.0"
