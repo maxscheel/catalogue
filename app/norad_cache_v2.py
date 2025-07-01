@@ -3,11 +3,6 @@
 # (c) 2013-2023 Tim Molteno (tim@elec.ac.nz)
 # Performance optimizations added 2023
 #
-# Key optimizations:
-# 1. TLE parsing cache (eliminates 11.5ms overhead = 36% speedup)
-# 2. Satellite object reuse
-# 3. Bulk processing optimizations
-# 4. Memory-efficient operations
 
 import file_cache
 from tle_cache import get_tle_cache
@@ -45,7 +40,7 @@ class OptimizedSp4Ephemeris:
     def get_cached_location(self, lat, lon, alt):
         """Cache location objects to avoid recreation"""
         cache_key = (lat.to_radians(), lon.to_radians(), alt)
-        
+
         with self._loc_cache_lock:
             if cache_key not in self._loc_cache:
                 self._loc_cache[cache_key] = location.Location(lat, lon, alt)
@@ -55,7 +50,7 @@ class OptimizedSp4Ephemeris:
                     keys_to_remove = list(self._loc_cache.keys())[:50]
                     for key in keys_to_remove:
                         del self._loc_cache[key]
-            
+
             return self._loc_cache[cache_key]
 
 
@@ -68,15 +63,15 @@ class OptimizedSp4Ephemerides:
         self.satellites = []
         self.use_tle_cache = use_tle_cache
         self.local_path = local_path
-        
+
         # Performance tracking
         self._load_start_time = time.time()
-        
+
         # Load satellites with optimized parsing
         self._load_satellites(local_path, name_list)
-        
+
         self._load_time = time.time() - self._load_start_time
-        
+
         # Cache for repeated location objects
         self._location_cache = {}
         self._location_cache_lock = threading.Lock()
@@ -92,7 +87,7 @@ class OptimizedSp4Ephemerides:
 
         # Batch collect TLEs first
         tle_data = []
-        
+
         for i, l in enumerate(lines):
             if (i % 3 == 0):
                 name = l.strip()
@@ -100,19 +95,19 @@ class OptimizedSp4Ephemerides:
                 line1 = l.strip()
             elif (i % 3 == 2):
                 line2 = l.strip()
-                
+
                 # Check name filter
                 include_satellite = True
                 if name_list is not None:
                     include_satellite = any(n in name for n in name_list)
-                
+
                 if include_satellite:
                     tle_data.append((name, line1, line2))
 
         # Batch process TLEs with cache
         if self.use_tle_cache:
             tle_cache = get_tle_cache()
-            
+
             for name, line1, line2 in tle_data:
                 try:
                     sv = tle_cache.get_satellite(line1, line2)
@@ -131,7 +126,7 @@ class OptimizedSp4Ephemerides:
     def get_cached_location(self, lat, lon, alt):
         """Get cached location object"""
         cache_key = (lat.to_radians(), lon.to_radians(), alt)
-        
+
         with self._location_cache_lock:
             if cache_key not in self._location_cache:
                 self._location_cache[cache_key] = location.Location(lat, lon, alt)
@@ -141,7 +136,7 @@ class OptimizedSp4Ephemerides:
                     keys_to_remove = list(self._location_cache.keys())[:25]
                     for key in keys_to_remove:
                         del self._location_cache[key]
-            
+
             return self._location_cache[cache_key]
 
     def get_positions(self, date):
@@ -160,10 +155,10 @@ class OptimizedSp4Ephemerides:
     def get_az_el(self, date, lat, lon, alt, elevation):
         """Get azimuth/elevation with optimizations"""
         ret = []
-        
+
         # Use cached location object
         loc = self.get_cached_location(lat, lon, alt)
-        
+
         # Vectorized filtering could be added here for further optimization
         for sv in self.satellites:
             try:
@@ -179,16 +174,16 @@ class OptimizedSp4Ephemerides:
             except Exception:
                 # Skip satellites that fail to compute
                 continue
-        
+
         return ret
 
     def bulk_get_az_el(self, dates, lat, lon, alt, elevation):
         """Optimized bulk processing for multiple dates"""
         results = []
-        
+
         # Cache location object once
         loc = self.get_cached_location(lat, lon, alt)
-        
+
         for date in dates:
             date_results = []
             for sv in self.satellites:
@@ -205,14 +200,14 @@ class OptimizedSp4Ephemerides:
                 except Exception:
                     continue
             results.append(date_results)
-        
+
         return results
 
     def get_performance_stats(self):
         """Get performance statistics"""
         tle_cache = get_tle_cache()
         cache_stats = tle_cache.get_stats()
-        
+
         return {
             'satellite_count': len(self.satellites),
             'load_time_ms': self._load_time * 1000,
@@ -224,7 +219,7 @@ class OptimizedSp4Ephemerides:
 # Optimized cache classes that use the new ephemerides
 class OptimizedNORADCache(file_cache.FileCache):
     """Optimized NORAD cache with TLE caching"""
-    
+
     def __init__(self):
         file_cache.FileCache.__init__(self, "waas")
 
@@ -234,7 +229,7 @@ class OptimizedNORADCache(file_cache.FileCache):
 
 class OptimizedGPSCache(file_cache.FileCache):
     """Optimized GPS cache with TLE caching"""
-    
+
     def __init__(self):
         file_cache.FileCache.__init__(self, "gps")
 
@@ -244,7 +239,7 @@ class OptimizedGPSCache(file_cache.FileCache):
 
 class OptimizedGalileoCache(file_cache.FileCache):
     """Optimized Galileo cache with TLE caching"""
-    
+
     def __init__(self):
         file_cache.FileCache.__init__(self, "galileo")
 
@@ -254,7 +249,7 @@ class OptimizedGalileoCache(file_cache.FileCache):
 
 class OptimizedBeidouCache(file_cache.FileCache):
     """Optimized Beidou cache with TLE caching"""
-    
+
     def __init__(self):
         file_cache.FileCache.__init__(self, "beidou")
 
@@ -267,44 +262,7 @@ def create_optimized_caches():
     """Create all optimized cache instances"""
     return {
         'waas': OptimizedNORADCache(),
-        'gps': OptimizedGPSCache(), 
+        'gps': OptimizedGPSCache(),
         'galileo': OptimizedGalileoCache(),
         'beidou': OptimizedBeidouCache()
     }
-
-
-# Performance comparison function
-def benchmark_cache_performance():
-    """Benchmark original vs optimized cache performance"""
-    import time
-    import tart.util.utc as utc
-    from tart.util import angle
-    
-    print("=== CACHE PERFORMANCE BENCHMARK ===")
-    
-    date = utc.now()
-    lat = angle.from_dms(-45.85)
-    lon = angle.from_dms(170.54)
-    alt = 0.0
-    elevation = 0.0
-    
-    # Test optimized cache
-    start = time.time()
-    opt_cache = OptimizedGPSCache()
-    opt_result = opt_cache.get_az_el(date, lat, lon, alt, elevation)
-    opt_time = time.time() - start
-    
-    print(f"Optimized cache: {opt_time*1000:.2f}ms ({len(opt_result)} satellites)")
-    
-    # Get TLE cache stats
-    from tle_cache import get_tle_cache
-    stats = get_tle_cache().get_stats()
-    print(f"TLE cache hit rate: {stats['hit_rate']:.1%}")
-    print(f"TLE cache time saved: {stats['total_time_saved_ms']:.2f}ms")
-    
-    return opt_time
-
-
-if __name__ == "__main__":
-    # Run benchmark
-    benchmark_cache_performance()

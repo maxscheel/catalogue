@@ -1,65 +1,60 @@
 """
-FastAPI V2 implementation of the catalogue API with uvloop and async optimizations
+FastAPI V2 Clean - Dead code removed, cache warming kept
 """
 
+# =============================================================================
+# CORE IMPORTS - Required for basic functionality
+# =============================================================================
 import asyncio
 import uvloop
 from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional, List, Dict, Any
+from typing import Optional, List
 import time
 import logging
 from datetime import datetime
-import psutil
+
+# =============================================================================
+# PROJECT IMPORTS - Core dependencies
+# =============================================================================
 from tart.util import angle
+from optimized_cache_manager import OptimizedCacheManager, parse_date_cached
 
-
-# Import existing optimized components
-from restful_api_v2 import (
-        OptimizedCacheManager,
-        parse_date_cached)
-
-
-# Configure logging
+# =============================================================================
+# LOGGING CONFIGURATION
+# =============================================================================
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Pydantic models
+# =============================================================================
+# PYDANTIC MODELS - Core API models only
+# =============================================================================
 class BulkAzElRequest(BaseModel):
+    """Request model for bulk azimuth/elevation calculations"""
     lat: float
     lon: float
     elevation: Optional[float] = 0.0  # Cutoff elevation in degrees
     alt: Optional[float] = 0.0  # Observer altitude in meters
     dates: List[str]
-    objects: Optional[List[str]] = None
 
-class PerformanceStats(BaseModel):
-    endpoint: str
-    duration_ms: float
-    timestamp: str
-    memory_usage_mb: float
-    cpu_percent: float
-
-class ComparisonResult(BaseModel):
-    v1: Dict[str, Any]
-    v2: Dict[str, Any]
-    improvement: Dict[str, float]
-
-# Global cache manager instance
+# =============================================================================
+# GLOBAL STATE - Core application state
+# =============================================================================
 cache_manager = None
-performance_stats = []
 
-# FastAPI app with optimized settings
+# =============================================================================
+# FASTAPI APPLICATION SETUP
+# =============================================================================
 app = FastAPI(
-    title="Catalogue API V2 FastAPI",
-    description="High-performance satellite catalogue API with FastAPI and uvloop",
-    version="2.0.0",
+    title="Catalogue API V2 Clean",
+    description="High-performance satellite catalogue API - clean version",
+    version="2.0.0-clean",
     docs_url="/v2/docs",
     redoc_url="/v2/redoc"
 )
 
-# CORS middleware
+# CORS middleware - Required for cross-origin requests
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -68,50 +63,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Request timing middleware
+# =============================================================================
+# CORE MIDDLEWARE - Basic request logging
+# =============================================================================
 @app.middleware("http")
-async def log_requests(request, call_next):
+async def log_requests(request: Request, call_next):
+    """Basic request logging"""
     start_time = time.time()
     response = await call_next(request)
     process_time = (time.time() - start_time) * 1000
     logger.info(f'{request.client.host} "{request.method} {request.url.path}" {response.status_code} - {process_time:.1f}ms')
     return response
 
-# Performance monitoring middleware
-@app.middleware("http")
-async def performance_middleware(request: Request, call_next):
-    start_time = time.time()
-    start_memory = psutil.Process().memory_info().rss / 1024 / 1024
-    start_cpu = psutil.cpu_percent()
-
-    response = await call_next(request)
-
-    end_time = time.time()
-    end_memory = psutil.Process().memory_info().rss / 1024 / 1024
-    end_cpu = psutil.cpu_percent()
-
-    duration_ms = (end_time - start_time) * 1000
-
-    # Store performance stats
-    stats = PerformanceStats(
-        endpoint=str(request.url.path),
-        duration_ms=duration_ms,
-        timestamp=datetime.now().isoformat(),
-        memory_usage_mb=end_memory,
-        cpu_percent=end_cpu
-    )
-    performance_stats.append(stats.dict())
-
-    # Keep only last 1000 stats
-    if len(performance_stats) > 1000:
-        performance_stats.pop(0)
-
-    # Add performance headers
-    response.headers["X-Response-Time"] = f"{duration_ms:.2f}ms"
-    response.headers["X-Memory-Usage"] = f"{end_memory:.2f}MB"
-
-    return response
-
+# =============================================================================
+# STARTUP EVENTS - Core initialization
+# =============================================================================
 @app.on_event("startup")
 async def startup_event():
     """Initialize the optimized cache manager on startup"""
@@ -122,8 +88,11 @@ async def startup_event():
 
     # Initialize cache manager
     cache_manager = OptimizedCacheManager()
-    logger.info("FastAPI V2 API initialized with uvloop and optimized caching")
+    logger.info("FastAPI V2 Clean API initialized with uvloop and optimized caching")
 
+# =============================================================================
+# CORE API ENDPOINTS - Essential functionality
+# =============================================================================
 @app.get("/v2/health")
 async def health_check():
     """Health check endpoint"""
@@ -131,9 +100,9 @@ async def health_check():
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
         "cache_active": cache_manager is not None,
-        "event_loop": "uvloop" if isinstance(asyncio.get_event_loop_policy(), uvloop.EventLoopPolicy) else "default"
+        "event_loop": "uvloop" if isinstance(asyncio.get_event_loop_policy(), uvloop.EventLoopPolicy) else "default",
+        "version": "clean"
     }
-
 
 @app.get("/v2/catalog")
 async def get_catalog_v2(
@@ -208,7 +177,6 @@ async def get_position_v2(
 async def get_bulk_az_el_v2(request: BulkAzElRequest):
     """FastAPI V2 bulk azimuth/elevation endpoint with async processing"""
     try:
-
         # Convert lat/lon to angle objects like the Flask version
         lat_angle = angle.from_dms(request.lat)
         lon_angle = angle.from_dms(request.lon)
@@ -227,7 +195,6 @@ async def get_bulk_az_el_v2(request: BulkAzElRequest):
             'lon': request.lon,
             'alt': request.alt,
             'dates': request.dates,
-            # 'dates': [d.isoformat() for d in dates],
             'az_el': catalog_data
         }
 
@@ -237,8 +204,9 @@ async def get_bulk_az_el_v2(request: BulkAzElRequest):
         logger.error(f"FastAPI V2 bulk az/el error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
-# Background task for cache warming
+# =============================================================================
+# CACHE WARMING - Background task for performance
+# =============================================================================
 async def warm_cache():
     """Background task to warm up caches"""
     if cache_manager:

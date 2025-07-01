@@ -1,33 +1,31 @@
-FROM ghcr.io/astral-sh/uv:python3.13-bookworm
+FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim AS builder
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 
+# Disable Python downloads, because we want to use the system interpreter
+# across both images. If using a managed Python version, it needs to be
+# copied from the build image into the final image; see `standalone.Dockerfile`
+# for an example.
+ENV UV_PYTHON_DOWNLOADS=0
+
+WORKDIR /app
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --locked --no-install-project --no-dev
+COPY . /app
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-dev
+
+
+# Then, use a final image without uv
+FROM python:3.13-slim-bookworm
 LABEL maintainer="Tim Molteno <tim@elec.ac.nz>"
 
-# Set environment variables for uv and Python
-ENV UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy \
-    PYTHONPATH=/app \
+COPY --from=builder --chown=app:app /app /app
+
+ENV PYTHONPATH=/app \
     PYTHONUNBUFFERED=1 \
     PATH="/app/.venv/bin:$PATH"
 
-# Create app directory
-WORKDIR /app
-
-# Copy only requirements first for maximum caching
-COPY requirements.txt ./
-
-# Create virtual environment and install dependencies
-# This layer will be cached unless requirements.txt changes
-RUN uv venv && \
-    uv pip install -r requirements.txt
-
-# Copy pyproject.toml if it exists (optional, for future use)
-COPY pyproject.toml* ./
-
-# Copy application code last (changes most frequently)
-COPY ./app/ /app/
-
-# Expose port
-EXPOSE 8876
-
-# Run the application using the installed waitress
-CMD [".venv/bin/waitress-serve", "--port", "8876", "restful_api:app"]
+# Copy the application from the builder
+WORKDIR /app/app

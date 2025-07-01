@@ -3,28 +3,12 @@
 # License GPL v3
 
 services:
-    # object-position-server:
-    #     build:
-    #         context: .
-    #     ports:
-    #         - 8876:8876
-    #     restart: unless-stopped
-    #     environment:
-    #         - FLASK_DEBUG=0
-    #     volumes:
-    #         - ~/catalog_cache:/app/orbit_data
-    #     logging:
-    #         driver: "json-file"
-    #         options:
-    #             max-file: "2"
-    #             max-size: "1m"
-
     fastapi-v2-server:
         build:
             context: .
-            dockerfile: Dockerfile.fastapi
+            dockerfile: Dockerfile
         ports:
-            - 8879:8877
+            - 8879:8879
         restart: unless-stopped
         volumes:
             - ~/catalog_cache:/app/orbit_data
@@ -36,7 +20,7 @@ services:
                 "--host",
                 "0.0.0.0",
                 "--port",
-                "8877",
+                "8879",
                 "--loop",
                 "uvloop",
                 "--access-log",
@@ -49,11 +33,3 @@ services:
             options:
                 max-file: "2"
                 max-size: "1m"
-
-    # api_doc_server:
-    #     build:
-    #         context: .
-    #         dockerfile: Dockerfile.apidoc
-    #     ports:
-    #         - 8877:80
-    #     restart: unless-stopped
