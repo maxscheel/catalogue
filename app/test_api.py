@@ -2,28 +2,27 @@
 
 import datetime
 import requests
-
 import json
-
 import unittest
 
 
 class TestCatalog(unittest.TestCase):
 
     def setUp(self):
-        self.server = "http://localhost:8876"
+        self.server = "http://localhost:8876/v2"
 
     def request(self, dt):
         payload = {'date': dt.isoformat(),
                    'lat': -45.87,
-                   'lon': 170.6, 'elevation': 45}
+                   'lon': 170.6,
+                   'elevation': 45}
 
         r = requests.get('{}/catalog'.format(self.server), params=payload)
         return json.loads(r.text)
 
     def test_basic_request(self):
-        ans = self.request(datetime.datetime.utcnow())
-
+        ans = self.request(datetime.datetime.now(datetime.UTC))
+        print(ans)
         for sv in ans:
             self.assertTrue('r' in sv)
             self.assertTrue('el' in sv)
@@ -31,18 +30,18 @@ class TestCatalog(unittest.TestCase):
             self.assertTrue('jy' in sv)
 
     def test_future_date(self):
-        t = datetime.datetime.utcnow()  # utc.utc_datetime(2002, 10, 31, 2, 2, 2)
+        t = datetime.datetime.now(datetime.UTC)
         dt = datetime.timedelta(days=2)
 
         with self.assertRaises(ValueError):
-            ans = self.request(t + dt)
+            self.request(t + dt)
 
     def test_speed(self):
-        t = datetime.datetime.utcnow()  # utc.utc_datetime(2002, 10, 31, 2, 2, 2)
+        t = datetime.datetime.now(datetime.UTC)
 
         dt = datetime.timedelta(minutes=1)
         for i in range(10):
-            ans = self.request(t)
+            self.request(t)
             t += dt
 
             # for sv in ans:

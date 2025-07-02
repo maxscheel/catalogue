@@ -126,8 +126,8 @@ class FileCache(sky_object.SkyObject):
 
             # Handle 403 Forbidden specifically (rate limiting)
             if err.code == 403:
-                logging.error("403 Forbidden - Setting ban for 2.5 hours")
-                self.set_ban(hours=2.5)
+                logging.error("403 Forbidden - Setting ban for 3 hours")
+                self.set_ban(hours=3)
                 raise RuntimeError("Rate limited by server. Ban file created.")
 
             raise (err)

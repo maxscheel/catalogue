@@ -1,7 +1,7 @@
 # Object Position Server V2 API - Optimized Version
 #
 # Author Tim Molteno tim@elec.ac.nz (c) 2013-2023
-# Author Max Scheel max@elec.ac.nz (c) 2025 - Performance Optimisations
+# Author Max Scheel max@elec.ac.nz (c) 2025 - Refactor for fastapi
 
 import asyncio
 from functools import lru_cache
@@ -81,7 +81,6 @@ class OptimizedCacheManager:
                         return
 
             # Count cache state before preload
-            initial_cache_size = len(self._position_cache)
 
             # Pre-calculate positions for every second in the range
             self.waas_cache.get_positions(date)
@@ -89,15 +88,18 @@ class OptimizedCacheManager:
             self.galileo_cache.get_positions(date)
             self.beidou_cache.get_positions(date)
 
-            final_cache_size = len(self._position_cache)
+
 
             start_date = date
             end_date = date + timedelta(minutes=1)
             interval = timedelta(seconds=1)
             while start_date < end_date:
-                svs = self.waas_cache.get_object(start_date).satellites + self.gps_cache.get_object(start_date).satellites + self.galileo_cache.get_object(start_date).satellites + self.beidou_cache.get_object(start_date).satellites
+                svs = self.waas_cache.get_object(start_date).satellites +\
+                    self.gps_cache.get_object(start_date).satellites +\
+                    self.galileo_cache.get_object(start_date).satellites +\
+                    self.beidou_cache.get_object(start_date).satellites
                 for sv in svs:
-                    get_cached_sv_position(sv , start_date)
+                    get_cached_sv_position(sv, start_date)
                 start_date += interval
 
         except Exception as e:
@@ -204,16 +206,16 @@ class OptimizedCacheManager:
         beidou_eph = self.beidou_cache.get_object(date)
         galileo_eph = self.galileo_cache.get_object(date)
 
-        comp = galileo_eph.satellites + waas_eph.satellites + beidou_eph.satellites + galileo_eph.satellites
+        comp = gps_eph.satellites + waas_eph.satellites + beidou_eph.satellites + galileo_eph.satellites
 
-        jy_list = (galileo_eph.jansky,) * len(galileo_eph.satellites)
+        jy_list = (gps_eph.jansky,) * len(gps_eph.satellites)
         jy_list += (waas_eph.jansky,) * len(waas_eph.satellites)
         jy_list += (beidou_eph.jansky,) * len(beidou_eph.satellites)
         jy_list += (galileo_eph.jansky,) * len(galileo_eph.satellites)
         res = get_az_el_optimized(comp, date, lat, lon, alt)
 
         catalog = []
-        catalog += [{'name': pair[0].name, 'js': pair[1]} | pair[2]  for pair in zip(comp, jy_list, res)]
+        catalog += [{'name': pair[0].name, 'jy': pair[1]} | pair[2]  for pair in zip(comp, jy_list, res)]
         catalog += self.sun.get_az_el(date, lat, lon, alt, elevation)
         catalog = list(filter(lambda x: x['el'] > elevation, catalog))
 
@@ -243,21 +245,12 @@ class OptimizedCacheManager:
 
 cache_manager = OptimizedCacheManager()
 
-# ==============================
-# OPTIMIZED UTILITY FUNCTIONS
-# ==============================
-
-@lru_cache(maxsize=1000)
 def parse_date_cached(date_string):
-    """Cached date parsing for better performance - rounds to second"""
-    try:
-        if date_string == "now":
-            return utc.now().replace(microsecond=0)
-        else:
-            dt = parser.parse(date_string.replace(' ', '+'))
-            return utc.to_utc(dt).replace(microsecond=0)
-    except Exception as err:
-        raise Exception("Invalid Date '{}' {}".format(date_string, err))
+    if date_string == "now":
+        return utc.now().replace(microsecond=0)
+    else:
+        dt = parser.parse(date_string.replace(' ', '+'))
+        return utc.to_utc(dt).replace(microsecond=0)
 
 def process_bulk_dates_vectorized(dates_param, lat, lon, alt, elevation):
     """Process bulk dates using vectorized operations where possible"""
@@ -362,7 +355,6 @@ def get_az_el_optimized(satellites, date, lat, lon, alt):
     # VECTORIZED coordinate transformation - key optimization!
     # Create location object once
     loc = location.Location(lat, lon, alt)
-
     ranges, elevations, azimuths = ecef_to_horizontal_vectorized(loc, positions_array)
 
     # Vectorized rounding and filtering

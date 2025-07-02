@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 import time
 import logging
-from datetime import datetime
+from datetime import datetime, UTC
 
 # =============================================================================
 # PROJECT IMPORTS - Core dependencies
@@ -85,88 +85,57 @@ async def startup_event():
 # =============================================================================
 # CORE API ENDPOINTS - Essential functionality
 # =============================================================================
-@app.get("/v2/health")
+@app.get("/health")
 async def health_check():
     """Health check endpoint"""
     return {
         "status": "healthy",
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "cache_active": cache_manager is not None,
         "event_loop": "uvloop" if isinstance(asyncio.get_event_loop_policy(), uvloop.EventLoopPolicy) else "default",
         "version": "clean"
     }
 
-@app.get("/v2/catalog")
-async def get_catalog_v2(
+@app.get("/catalog")
+async def get_catalog(
     lat: float = Query(..., description="Latitude in degrees"),
     lon: float = Query(..., description="Longitude in degrees"),
+    date: Optional[str] = Query(None, description="Date in ISO format [Second] precision"),
+    alt: float = Query(0.0, description="Observer altitude in meters"),
     elevation: float = Query(0.0, description="Cutoff elevation in degrees (ignore objects below this)"),
-    alt: float = Query(0.0, description="Observer altitude in meters"),
+):
+    dt = handleDate(date)
+
+    # Convert lat/lon to angle objects like the Flask version
+    lat_angle = angle.from_dms(lat)
+    lon_angle = angle.from_dms(lon)
+
+    # Get catalog data using optimized cache
+    catalog_data = await cache_manager.get_bulk_catalog_async([dt], lat_angle, lon_angle, alt, elevation)
+
+    if not catalog_data or not catalog_data[0]:
+        raise HTTPException(status_code=404, detail="No catalog data found")
+
+    return catalog_data[0]
+
+
+def handleDate(date: str|None) -> datetime:
+    if date:
+        dt = parse_date_cached(date)
+    else:
+        dt = datetime.now(UTC)
+    return dt.replace(microsecond=0)
+
+@app.get("/position/")
+async def get_position(
     date: Optional[str] = Query(None, description="Date in ISO format")
 ):
-    """FastAPI V2 catalog endpoint with async optimizations"""
-    try:
-        # Parse date
-        if date:
-            dt = parse_date_cached(date)
-        else:
-            dt = datetime.utcnow()
+    dt = handleDate(date)
+    positions = cache_manager.get_cached_positions(dt)
+    return positions
 
-        # Convert lat/lon to angle objects like the Flask version
-        lat_angle = angle.from_dms(lat)
-        lon_angle = angle.from_dms(lon)
-
-        # Get catalog data using optimized cache
-        catalog_data = await cache_manager.get_bulk_catalog_async([dt], lat_angle, lon_angle, alt, elevation)
-
-        if not catalog_data or not catalog_data[0]:
-            raise HTTPException(status_code=404, detail="No catalog data found")
-
-        return catalog_data[0]
-
-    except Exception as e:
-        logger.error(f"FastAPI V2 catalog error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/v2/position")
-async def get_position_v2(
-    lat: float = Query(..., description="Latitude in degrees"),
-    lon: float = Query(..., description="Longitude in degrees"),
-    elevation: float = Query(0.0, description="Cutoff elevation in degrees"),
-    alt: float = Query(0.0, description="Observer altitude in meters"),
-    object_name: str = Query(..., alias="object", description="Object name"),
-    date: Optional[str] = Query(None, description="Date in ISO format")
-):
-    """FastAPI V2 position endpoint"""
-    try:
-        # Parse date
-        if date:
-            dt = parse_date_cached(date)
-        else:
-            dt = datetime.utcnow()
-
-        # Convert lat/lon to angle objects like the Flask version
-        lat_angle = angle.from_dms(lat)
-        lon_angle = angle.from_dms(lon)
-
-        # Get position data
-        positions = cache_manager.get_cached_positions(lat_angle, lon_angle, alt, dt)
-
-        # Find the requested object
-        for pos in positions:
-            if pos.get('name', '').lower() == object_name.lower():
-                return pos
-
-        raise HTTPException(status_code=404, detail=f"Object '{object_name}' not found")
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"FastAPI V2 position error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/v2/bulk_az_el")
-async def get_bulk_az_el_v2(request: BulkAzElRequest):
+@app.post("/bulk_az_el")
+async def get_bulk_az_el(request: BulkAzElRequest):
     """FastAPI V2 bulk azimuth/elevation endpoint with async processing"""
     try:
         # Convert lat/lon to angle objects like the Flask version
@@ -174,7 +143,7 @@ async def get_bulk_az_el_v2(request: BulkAzElRequest):
         lon_angle = angle.from_dms(request.lon)
 
         # Parse dates
-        dates = [parse_date_cached(ts) for ts in request.dates]
+        dates = [handleDate(ts) for ts in request.dates]
 
         # Get bulk catalog data asynchronously
         catalog_data = await cache_manager.get_bulk_catalog_async(
@@ -214,7 +183,7 @@ async def warm_cache():
             try:
                 lat_angle = angle.from_dms(lat)
                 lon_angle = angle.from_dms(lon)
-                await cache_manager.get_bulk_catalog_async([datetime.utcnow()], lat_angle, lon_angle, 0.0, 0.0)
+                await cache_manager.get_bulk_catalog_async([datetime.now(UTC)], lat_angle, lon_angle, 0.0, 0.0)
                 logger.info(f"Cache warmed for location: {lat}, {lon}")
             except Exception as e:
                 logger.error(f"Cache warm-up failed for {lat}, {lon}: {e}")

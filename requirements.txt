@@ -1,25 +1,16 @@
 # Core dependencies for catalogue API
 numpy
-matplotlib
 python-dateutil
-flask
-flask-cors
 sgp4
 requests
 pytz
-waitress
 healpy
 astropy
 h5py
 tart
-psutil
 aiohttp
-asyncio
 
 # FastAPI dependencies
-fastapi[standard]
+fastapi
 uvicorn[standard]
 uvloop
-pydantic
-python-multipart
-orjson

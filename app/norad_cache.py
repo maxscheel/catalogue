@@ -26,8 +26,7 @@ class Sp4Ephemeris:
         position, velocity = self.sv.propagate(
             date.year, date.month, date.day, date.hour, date.minute, date.second)
         vel = [velocity[0]*1000.0, velocity[1]*1000.0, velocity[2]*1000.0]
-        pos = location.eci_to_ecef(
-            date, position[0]*1000.0, position[1]*1000.0, position[2]*1000.0)
+        pos = location.eci_to_ecef(date, position[0]*1000.0, position[1]*1000.0, position[2]*1000.0)
         return pos, vel
 
     def get_az_el(self, date, loc):
@@ -45,16 +44,16 @@ class Sp4Ephemerides:
         self.satellites = []
         f = open(local_path, "r")
         lines = f.readlines()
-        for i, l in enumerate(lines):
-            # print(i, l)
+        for i, line in enumerate(lines):
+            # print(i, line)
             if (i % 3 == 0):
-                name = l.strip()
+                name = line.strip()
 
             if (i % 3 == 1):
-                line1 = l.strip()
+                line1 = line.strip()
 
             if (i % 3 == 2):
-                line2 = l.strip()
+                line2 = line.strip()
                 sv = twoline2rv(line1, line2, wgs84)
                 if name_list is None:
                     self.satellites.append(Sp4Ephemeris(name, sv))

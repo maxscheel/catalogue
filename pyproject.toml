@@ -7,11 +7,11 @@ dependencies = [
     "requests",
     "pytz",
     "tart",
-
     # FastAPI dependencies
     "fastapi",
     "uvicorn[standard]",
     "uvloop",
+    "skyfield>=1.53",
 ]
 name = "catalogue-service"
 version = "1.0.0"

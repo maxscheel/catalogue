@@ -1,10 +1,11 @@
 import csv
+import os
 
+import matplotlib.pyplot as plt
+import numpy as np
 from skyfield.api import EarthSatellite
 from skyfield.api import load
 from skyfield.api import wgs84
-
-import os
 
 max_days = 1.0         # download again once 1 days old
 
@@ -69,8 +70,7 @@ def get_catalog(group, lat, lon, obs_t=None):
     return ret
 
 
-import matplotlib.pyplot as plt
-import numpy as np
+
 
 fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
 # ax.set_theta_direction(-1)
@@ -100,4 +100,3 @@ ax.grid(True)
 
 ax.set_title("Satellites above the TART telescope", va='bottom')
 plt.show()
-
