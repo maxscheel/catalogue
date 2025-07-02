@@ -241,7 +241,7 @@ class OptimizedCacheManager:
 
         # Wait for all tasks to complete
         results = await asyncio.gather(*tasks)
-        return results[0]
+        return results
 
 cache_manager = OptimizedCacheManager()
 

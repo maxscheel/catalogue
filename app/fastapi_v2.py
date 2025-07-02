@@ -5,7 +5,6 @@ import asyncio
 import uvloop
 from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, RootModel
 from typing import Optional, List
 import time
 import logging
@@ -16,6 +15,13 @@ from datetime import datetime, UTC
 # =============================================================================
 from tart.util import angle
 from optimized_cache_manager import OptimizedCacheManager, parse_date_cached
+from models import (
+    BulkAzElRequest, SatelliteInfo, PositionInfo, BulkAzElResponse,
+    HealthResponse, ErrorResponse, CatalogResponse, PositionsResponse
+)
+from examples import (
+    CATALOG_EXAMPLES, POSITIONS_EXAMPLES, BULK_AZ_EL_EXAMPLES
+)
 
 # =============================================================================
 # LOGGING CONFIGURATION
@@ -23,113 +29,6 @@ from optimized_cache_manager import OptimizedCacheManager, parse_date_cached
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# =============================================================================
-# PYDANTIC MODELS - Core API models only
-# =============================================================================
-class BulkAzElRequest(BaseModel):
-    """Request model for bulk azimuth/elevation calculations"""
-    lat: float = Field(..., description="Observer latitude in degrees", example=-45.85, ge=-90, le=90)
-    lon: float = Field(..., description="Observer longitude in degrees", example=170.54, ge=-180, le=180)
-    elevation: Optional[float] = Field(0.0, description="Minimum elevation cutoff in degrees (satellites below this are filtered out)", example=10.0, ge=0, le=90)
-    alt: Optional[float] = Field(0.0, description="Observer altitude above sea level in meters", example=100.0, ge=0)
-    dates: List[str] = Field(..., description="List of ISO format datetime strings", example=["2024-01-15T12:00:00Z", "2024-01-15T12:01:00Z"])
-
-    class Config:
-        schema_extra = {
-            "example": {
-                "lat": -45.85,
-                "lon": 170.54,
-                "elevation": 10.0,
-                "alt": 100.0,
-                "dates": ["2024-01-15T12:00:00Z", "2024-01-15T12:01:00Z", "2024-01-15T12:02:00Z"]
-            }
-        }
-
-
-class SatelliteInfo(BaseModel):
-    """Individual satellite information"""
-    name: str = Field(..., description="Satellite name or identifier", example="GPS BIIR-2")
-    az: float = Field(..., description="Azimuth angle in degrees (0=North, 90=East)", example=125.5, ge=0, lt=360)
-    el: float = Field(..., description="Elevation angle in degrees above horizon", example=45.2, ge=0, le=90)
-    r: float = Field(..., description="Range/distance to satellite in meters", example=20234567.8)
-    jy: Optional[float] = Field(None, description="Flux density in Jansky for radio astronomy", example=1e-4)
-
-    class Config:
-        schema_extra = {
-            "example": {
-                "name": "GPS BIIR-2",
-                "az": 125.5,
-                "el": 45.2,
-                "r": 20234567.8,
-                "jy": 1e-4
-            }
-        }
-
-
-# Type alias for catalog response - just a list of satellites
-
-class BulkAzElResponse(BaseModel):
-    """Response model for bulk azimuth/elevation calculations"""
-    lat: float = Field(..., description="Observer latitude used", example=-45.85)
-    lon: float = Field(..., description="Observer longitude used", example=170.54)
-    alt: float = Field(..., description="Observer altitude used", example=100.0)
-    dates: List[str] = Field(..., description="Input timestamps", example=["2024-01-15T12:00:00Z"])
-    az_el: List[SatelliteInfo] = Field(..., description="Catalog data for each timestamp - array of satellite arrays")
-
-    class Config:
-        schema_extra = {
-            "example": {
-                "lat": -45.85,
-                "lon": 170.54,
-                "alt": 100.0,
-                "dates": ["2024-01-15T12:00:00Z", "2024-01-15T12:01:00Z"],
-                "az_el": [
-                    [
-                        {
-                            "name": "GPS BIIR-2",
-                            "az": 125.5,
-                            "el": 45.2,
-                            "r": 20234567.8,
-                            "jy": 1e-4
-                        }
-                    ],
-                    [
-                        {
-                            "name": "GPS BIIR-3",
-                            "az": 130.0,
-                            "el": 50.0,
-                            "r": 20100000.0,
-                            "jy": 1e-4
-                        }
-                    ]
-                ]
-            }
-        }
-
-
-class HealthResponse(BaseModel):
-    """Health check response"""
-    status: str = Field(..., description="Service health status", example="healthy")
-    timestamp: str = Field(..., description="Current server timestamp", example="2024-01-15T12:00:00Z")
-    cache_active: bool = Field(..., description="Whether cache manager is active", example=True)
-    event_loop: str = Field(..., description="Active event loop type", example="uvloop")
-    version: str = Field(..., description="Service version", example="clean")
-
-    class Config:
-        schema_extra = {
-            "example": {
-                "status": "healthy",
-                "timestamp": "2024-01-15T12:00:00.123456Z",
-                "cache_active": True,
-                "event_loop": "uvloop",
-                "version": "clean"
-            }
-        }
-
-
-class ErrorResponse(BaseModel):
-    """Error response model"""
-    detail: str = Field(..., description="Error description", example="No catalog data found")
 
 # =============================================================================
 # GLOBAL STATE - Core application state
@@ -184,10 +83,6 @@ app = FastAPI(
         {
             "name": "bulk",
             "description": "Bulk processing endpoints for multiple timestamps",
-        },
-        {
-            "name": "cache",
-            "description": "Cache management and position data",
         },
     ]
 )
@@ -274,53 +169,7 @@ async def health_check():
             "description": "Successful catalog retrieval",
             "content": {
                 "application/json": {
-                    "examples": {
-                        "christchurch_location": {
-                            "summary": "Christchurch, New Zealand example",
-                            "value": [
-                                {
-                                    "name": "GPS BIIR-2",
-                                    "az": 125.5,
-                                    "el": 45.2,
-                                    "r": 20234567.8,
-                                    "jy": 1e-4
-                                },
-                                {
-                                    "name": "GALILEO-22",
-                                    "az": 280.1,
-                                    "el": 35.7,
-                                    "r": 23456789.1,
-                                    "jy": 1e-4
-                                },
-                                {
-                                    "name": "Sun",
-                                    "az": 180.0,
-                                    "el": 30.0,
-                                    "r": 149597870700.0,
-                                    "jy": 1000000.0
-                                }
-                            ]
-                        },
-                        "high_elevation_filter": {
-                            "summary": "High elevation filter example",
-                            "value": [
-                                {
-                                    "name": "BEIDOU-3 M14",
-                                    "az": 91.5,
-                                    "el": 75.8,
-                                    "r": 21677345.2,
-                                    "jy": 1e-4
-                                },
-                                {
-                                    "name": "Sun",
-                                    "az": 180.0,
-                                    "el": 45.0,
-                                    "r": 149597870700.0,
-                                    "jy": 1000000.0
-                                }
-                            ]
-                        }
-                    }
+                    "examples": CATALOG_EXAMPLES
                 }
             }
         },
@@ -353,7 +202,7 @@ async def get_catalog(
     if not catalog_data or not catalog_data[0]:
         raise HTTPException(status_code=404, detail="No catalog data found")
 
-    return catalog_data
+    return catalog_data[0]
 
 
 def handleDate(date: str|None) -> datetime:
@@ -365,7 +214,8 @@ def handleDate(date: str|None) -> datetime:
 
 @app.get(
     "/position/",
-    tags=["cache"],
+    response_model=PositionsResponse,
+    tags=["catalog"],
     summary="Get Cached Satellite Positions",
     description="""
     Retrieve raw satellite position data from the cache for a specific timestamp.
@@ -385,22 +235,7 @@ def handleDate(date: str|None) -> datetime:
             "description": "Cached position data retrieved successfully",
             "content": {
                 "application/json": {
-                    "example": [
-                        {
-                            "name": "GPS BIIR-2",
-                            "az": 125.5,
-                            "el": 45.2,
-                            "r": 20234567.8,
-                            "jy": 1e-4
-                        },
-                        {
-                            "name": "GALILEO-FM2",
-                            "az": 210.3,
-                            "el": 65.1,
-                            "r": 23456789.0,
-                            "jy": 1e-4
-                        }
-                    ]
+                    "examples": POSITIONS_EXAMPLES
                 }
             }
         }
@@ -445,32 +280,7 @@ async def get_position(
             "description": "Bulk calculation completed successfully",
             "content": {
                 "application/json": {
-                    "example": {
-                        "lat": -45.85,
-                        "lon": 170.54,
-                        "alt": 100.0,
-                        "dates": ["2024-01-15T12:00:00Z", "2024-01-15T12:01:00Z"],
-                        "az_el": [
-                            [
-                                {
-                                    "name": "GPS BIIR-2",
-                                    "az": 125.5,
-                                    "el": 45.2,
-                                    "r": 20234567.8,
-                                    "jy": 1e-4
-                                }
-                            ],
-                            [
-                                {
-                                    "name": "GPS BIIR-3",
-                                    "az": 130.0,
-                                    "el": 50.0,
-                                    "r": 20100000.0,
-                                    "jy": 1e-4
-                                }
-                            ]
-                        ]
-                    }
+                    "examples": BULK_AZ_EL_EXAMPLES
                 }
             }
         },
