@@ -13,6 +13,7 @@ import numpy as np
 
 import tart.util.utc as utc
 from tart.imaging import location
+from tart.util import angle
 
 import norad_cache
 from dateutil import parser
@@ -228,6 +229,10 @@ class OptimizedCacheManager:
     async def get_bulk_catalog_async(self, dates, lat, lon, alt, elevation):
         """Get bulk catalog data using async processing"""
         loop = asyncio.get_event_loop()
+        lat_angle = angle.from_dms(lat)
+        lon_angle = angle.from_dms(lon)
+
+
 
         # Create tasks for parallel processing
         tasks = []
@@ -235,7 +240,7 @@ class OptimizedCacheManager:
             task = loop.run_in_executor(
                 None,
                 self.get_cached_catalog_list,
-                date, lat, lon, alt, elevation
+                date, lat_angle, lon_angle, alt, elevation
             )
             tasks.append(task)
 

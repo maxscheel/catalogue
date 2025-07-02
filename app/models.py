@@ -119,26 +119,6 @@ class BulkAzElResponse(BaseModel):
         }
 
 
-class HealthResponse(BaseModel):
-    """Health check response"""
-    status: str = Field(..., description="Service health status", example="healthy")
-    timestamp: str = Field(..., description="Current server timestamp", example="2024-01-15T12:00:00Z")
-    cache_active: bool = Field(..., description="Whether cache manager is active", example=True)
-    event_loop: str = Field(..., description="Active event loop type", example="uvloop")
-    version: str = Field(..., description="Service version", example="clean")
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "status": "healthy",
-                "timestamp": "2024-01-15T12:00:00.123456Z",
-                "cache_active": True,
-                "event_loop": "uvloop",
-                "version": "clean"
-            }
-        }
-
-
 class ErrorResponse(BaseModel):
     """Error response model"""
     detail: str = Field(..., description="Error description", example="No catalog data found")

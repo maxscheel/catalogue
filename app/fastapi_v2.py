@@ -1,39 +1,25 @@
 # =============================================================================
 # CORE IMPORTS - Required for basic functionality
 # =============================================================================
-import asyncio
-import uvloop
-from fastapi import FastAPI, HTTPException, Request, Query
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, List
-import time
-import logging
 from datetime import datetime, UTC
 
 # =============================================================================
 # PROJECT IMPORTS - Core dependencies
 # =============================================================================
-from tart.util import angle
-from optimized_cache_manager import OptimizedCacheManager, parse_date_cached
 from models import (
     BulkAzElRequest, SatelliteInfo, PositionInfo, BulkAzElResponse,
-    HealthResponse, ErrorResponse, CatalogResponse, PositionsResponse
+    ErrorResponse, CatalogResponse, PositionsResponse
 )
 from examples import (
     CATALOG_EXAMPLES, POSITIONS_EXAMPLES, BULK_AZ_EL_EXAMPLES
 )
-
-# =============================================================================
-# LOGGING CONFIGURATION
-# =============================================================================
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-
-# =============================================================================
-# GLOBAL STATE - Core application state
-# =============================================================================
-cache_manager = None
+from utils import (
+    log_requests, startup_event, startup_cache_warming,
+    get_cache_manager, handle_date
+)
 
 # =============================================================================
 # FASTAPI APPLICATION SETUP
@@ -41,27 +27,15 @@ cache_manager = None
 app = FastAPI(
     title="Satellite Catalogue API V2",
     description="""
-    ## High-performance satellite catalogue API for GNSS and space object tracking
+    ## Satellite Catalogue API for GNSS and Space Object Tracking
 
-    This API provides real-time satellite position data for GPS, GLONASS, Galileo, and BeiDou constellations.
+    Get real-time satellite position data for GPS, GLONASS, Galileo, and BeiDou constellations.
 
     ### Features:
-    - **Real-time satellite positions** with azimuth/elevation calculations
-    - **Bulk processing** for multiple timestamps
-    - **Optimized caching** for high-performance queries
-    - **Async processing** with uvloop for maximum throughput
-    - **Flexible filtering** by elevation cutoff and location
-
-    ### Use Cases:
-    - GNSS receiver simulation and testing
-    - Radio telescope pointing calculations
-    - Satellite visibility analysis
-    - Space situational awareness
-
-    ### Performance:
-    - Cached position calculations for sub-millisecond response times
-    - Async bulk processing for large datasets
-    - Optimized for radio astronomy and GNSS applications
+    - Real-time satellite positions with azimuth/elevation calculations
+    - Bulk processing for multiple timestamps
+    - Flexible filtering by elevation cutoff and location
+    - Support for radio astronomy applications
     """,
     version="2.0.0",
     docs_url="/docs",
@@ -97,45 +71,15 @@ app.add_middleware(
 )
 
 # =============================================================================
-# CORE MIDDLEWARE - Basic request logging
+# MIDDLEWARE AND STARTUP EVENTS
 # =============================================================================
-@app.middleware("http")
-async def log_requests(request: Request, call_next):
-    start_time = time.time()
-    response = await call_next(request)
-    process_time = (time.time() - start_time) * 1000
-    logger.info(f'{request.client.host} "{request.method} {request.url.path}" {response.status_code} - {process_time:.1f}ms')
-    return response
-
-# =============================================================================
-# STARTUP EVENTS - Core initialization
-# =============================================================================
-@app.on_event("startup")
-async def startup_event():
-    """Initialize the optimized cache manager on startup"""
-    global cache_manager
-
-    # Set uvloop as the event loop policy
-    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-    cache_manager = OptimizedCacheManager()
+app.middleware("http")(log_requests)
+app.on_event("startup")(startup_event)
+app.on_event("startup")(startup_cache_warming)
 
 # =============================================================================
 # CORE API ENDPOINTS - Essential functionality
 # =============================================================================
-@app.get(
-    "/health",
-    response_model=HealthResponse,
-    include_in_schema=False
-)
-async def health_check():
-    """Health check endpoint for monitoring service status"""
-    return {
-        "status": "healthy",
-        "timestamp": datetime.now(UTC).isoformat(),
-        "cache_active": cache_manager is not None,
-        "event_loop": "uvloop" if isinstance(asyncio.get_event_loop_policy(), uvloop.EventLoopPolicy) else "default",
-        "version": "clean"
-    }
 
 @app.get(
     "/catalog",
@@ -143,27 +87,11 @@ async def health_check():
     tags=["catalog"],
     summary="Get Satellite Catalog",
     description="""
-    Get real-time satellite catalog data for a specific location and time.
+    Get satellite positions visible from a specific location and time.
 
-    This endpoint calculates the azimuth, elevation, and range for all visible satellites
-    from the specified observer location. Satellites below the elevation cutoff are filtered out.
-
-    ### Parameters:
-    - **lat**: Observer latitude in decimal degrees (-90 to 90)
-    - **lon**: Observer longitude in decimal degrees (-180 to 180)
-    - **date**: Optional timestamp (defaults to current time)
-    - **alt**: Observer altitude above sea level in meters
-    - **elevation**: Minimum elevation cutoff in degrees (0-90)
-
-    ### Returns:
-    Complete satellite visibility data including position vectors and metadata.
-
-    ### Example Usage:
-    ```
-    GET /catalog?lat=-45.85&lon=170.54&elevation=10.0&alt=100.0
-    ```
+    Returns azimuth, elevation, and range for all visible satellites.
+    Satellites below the elevation cutoff are filtered out.
     """,
-    operation_id="get_satellite_catalog",
     responses={
         200: {
             "description": "Successful catalog retrieval",
@@ -190,46 +118,24 @@ async def get_catalog(
     alt: float = Query(0.0, description="Observer altitude above sea level in meters", example=100.0, ge=0),
     elevation: float = Query(0.0, description="Minimum elevation cutoff in degrees. Satellites below this angle are filtered out.", example=10.0, ge=0, le=90),
 ):
-    dt = handleDate(date)
-
-    # Convert lat/lon to angle objects like the Flask version
-    lat_angle = angle.from_dms(lat)
-    lon_angle = angle.from_dms(lon)
-
-    # Get catalog data using optimized cache
-    catalog_data = await cache_manager.get_bulk_catalog_async([dt], lat_angle, lon_angle, alt, elevation)
+    dt = handle_date(date)
+    # Get catalog data using cache manager
+    cache_manager = get_cache_manager()
+    catalog_data = await cache_manager.get_bulk_catalog_async([dt], lat, lon, alt, elevation)
 
     if not catalog_data or not catalog_data[0]:
         raise HTTPException(status_code=404, detail="No catalog data found")
 
     return catalog_data[0]
 
-
-def handleDate(date: str|None) -> datetime:
-    if date:
-        dt = parse_date_cached(date)
-    else:
-        dt = datetime.now(UTC)
-    return dt.replace(microsecond=0)
-
 @app.get(
     "/position/",
     response_model=PositionsResponse,
     tags=["catalog"],
-    summary="Get Cached Satellite Positions",
+    summary="Get Satellite Positions",
     description="""
-    Retrieve raw satellite position data from the cache for a specific timestamp.
-
-    This endpoint returns the underlying cached position data used for catalog calculations.
-    Useful for debugging and accessing raw satellite state vectors.
-
-    ### Parameters:
-    - **date**: Optional timestamp (defaults to current time)
-
-    ### Returns:
-    Raw cached position data for all tracked satellites.
+    Get raw satellite position data in ECEF coordinates for a specific timestamp.
     """,
-    operation_id="get_cached_positions",
     responses={
         200: {
             "description": "Cached position data retrieved successfully",
@@ -244,10 +150,10 @@ def handleDate(date: str|None) -> datetime:
 async def get_position(
     date: Optional[str] = Query(None, description="ISO format timestamp (YYYY-MM-DDTHH:MM:SSZ). Defaults to current time.", example="2024-01-15T12:00:00Z")
 ):
-    """Get cached satellite position data for debugging and analysis"""
-    dt = handleDate(date)
-    positions = cache_manager.get_cached_positions(dt)
-    return positions
+    """Get satellite position data in ECEF coordinates"""
+    dt = handle_date(date)
+    cache_manager = get_cache_manager()
+    return cache_manager.get_cached_positions(dt)
 
 @app.post(
     "/bulk_az_el",
@@ -255,26 +161,10 @@ async def get_position(
     tags=["bulk"],
     summary="Bulk Azimuth/Elevation Calculation",
     description="""
-    Calculate satellite azimuth and elevation data for multiple timestamps in a single request.
+    Calculate satellite positions for multiple timestamps in a single request.
 
-    This endpoint is optimized for bulk processing and uses async caching for high performance.
-    Ideal for simulation, analysis, and batch processing of satellite visibility data.
-
-    ### Use Cases:
-    - Time series analysis of satellite visibility
-    - GNSS receiver simulation over time periods
-    - Batch processing for research and analysis
-    - Radio telescope pointing schedule generation
-
-    ### Performance:
-    - Async processing for optimal throughput
-    - Intelligent caching reduces computation time
-    - Supports hundreds of timestamps per request
-
-    ### Request Body:
-    JSON object with observer location, timestamps, and filtering parameters.
+    Useful for time series analysis and batch processing.
     """,
-    operation_id="bulk_azimuth_elevation",
     responses={
         200: {
             "description": "Bulk calculation completed successfully",
@@ -295,66 +185,26 @@ async def get_position(
     }
 )
 async def get_bulk_az_el(request: BulkAzElRequest):
-    """
-    Process bulk azimuth/elevation calculations with async optimization.
-
-    Efficiently calculates satellite positions for multiple timestamps using
-    optimized caching and async processing for maximum performance.
-    """
+    """Calculate satellite positions for multiple timestamps efficiently."""
     try:
-        # Convert lat/lon to angle objects like the Flask version
-        lat_angle = angle.from_dms(request.lat)
-        lon_angle = angle.from_dms(request.lon)
-
         # Parse dates
-        dates = [handleDate(ts) for ts in request.dates]
+        dates = [handle_date(ts) for ts in request.dates]
 
         # Get bulk catalog data asynchronously
+        cache_manager = get_cache_manager()
         catalog_data = await cache_manager.get_bulk_catalog_async(
-            dates, lat_angle, lon_angle, request.alt, request.elevation
+            dates, request.lat, request.lon, request.alt, request.elevation
         )
 
-        # Return V1-compatible format
-        result = {
+        return {
             'lat': request.lat,
             'lon': request.lon,
             'alt': request.alt,
             'dates': request.dates,
             'az_el': catalog_data
         }
-
-        return result
-
     except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
         logger.error(f"FastAPI V2 bulk az/el error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
-# =============================================================================
-# CACHE WARMING - Background task for performance
-# =============================================================================
-async def warm_cache():
-    """Background task to warm up caches"""
-    if cache_manager:
-        logger.info("Starting cache warm-up...")
-        # Warm up with common locations
-        test_locations = [
-            (-45.85, 170.54),  # Christchurch
-            (40.7128, -74.0060),  # New York
-            (51.5074, -0.1278),   # London
-        ]
-
-        for lat, lon in test_locations:
-            try:
-                lat_angle = angle.from_dms(lat)
-                lon_angle = angle.from_dms(lon)
-                await cache_manager.get_bulk_catalog_async([datetime.now(UTC)], lat_angle, lon_angle, 0.0, 0.0)
-                logger.info(f"Cache warmed for location: {lat}, {lon}")
-            except Exception as e:
-                logger.error(f"Cache warm-up failed for {lat}, {lon}: {e}")
-
-@app.on_event("startup")
-async def startup_cache_warming():
-    """Start cache warming in background"""
-    # Small delay to ensure cache manager is ready
-    await asyncio.sleep(1)
-    asyncio.create_task(warm_cache())
