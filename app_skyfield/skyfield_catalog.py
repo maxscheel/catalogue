@@ -3,11 +3,9 @@ import os
 
 import matplotlib.pyplot as plt
 import numpy as np
-from skyfield.api import EarthSatellite
-from skyfield.api import load
-from skyfield.api import wgs84
+from skyfield.api import EarthSatellite, load, wgs84
 
-max_days = 1.0         # download again once 1 days old
+max_days = 1.0  # download again once 1 days old
 
 
 def get_cache_file(group, t):
@@ -20,11 +18,10 @@ def get_cache_file(group, t):
 def get_sv_name(fullname):
     # Extract all substrings inside brackets
     s = fullname
-    return s[s.find("(")+1:s.find(")")]
+    return s[s.find("(") + 1 : s.find(")")]
 
 
 def get_catalog(group, lat, lon, obs_t=None):
-
     ts = load.timescale()
     if obs_t is None:
         t = ts.now()
@@ -33,13 +30,13 @@ def get_catalog(group, lat, lon, obs_t=None):
 
     catalog_fname = get_cache_file(group, t)
 
-    base = 'https://celestrak.org/NORAD/elements/gp.php'
+    base = "https://celestrak.org/NORAD/elements/gp.php"
     url = base + f"?GROUP={group}&FORMAT=csv"
 
     if not load.exists(catalog_fname) or load.days_old(catalog_fname) >= max_days:
         load.download(url, filename=catalog_fname)
 
-    with load.open(catalog_fname, mode='r') as f:
+    with load.open(catalog_fname, mode="r") as f:
         data = list(csv.DictReader(f))
 
     sats = [EarthSatellite.from_omm(ts, fields) for fields in data]
@@ -60,21 +57,21 @@ def get_catalog(group, lat, lon, obs_t=None):
         alt, az, distance = topocentric.altaz()
 
         if alt.degrees > 0:
-            s_dict = {'full_name': satellite.name,
-                      'name': get_sv_name(satellite.name),
-                      'elevation': alt.degrees,
-                      'azimuth': az.degrees,
-                      'range': distance.m}
+            s_dict = {
+                "full_name": satellite.name,
+                "name": get_sv_name(satellite.name),
+                "elevation": alt.degrees,
+                "azimuth": az.degrees,
+                "range": distance.m,
+            }
             ret.append(s_dict)
 
     return ret
 
 
-
-
-fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
+fig, ax = plt.subplots(subplot_kw={"projection": "polar"})
 # ax.set_theta_direction(-1)
-ax.set_theta_offset(np.pi/2.0)
+ax.set_theta_offset(np.pi / 2.0)
 
 tick_deg = [90, 75, 60, 45, 30, 15, 0]
 tick_labels = [str(x) for x in tick_deg]
@@ -85,18 +82,18 @@ sats += get_catalog(group="GALILEO", lat=-33.3, lon=26.5)
 
 for satellite in sats:
     print(satellite)
-    theta = np.radians(satellite['azimuth'])   # 0 is straight up
-    r = 90 - (satellite['elevation'])   # 1 when elevation is zero.
-    ax.plot(theta, r, 'o')
-    ax.text(theta, r, satellite['name'])
+    theta = np.radians(satellite["azimuth"])  # 0 is straight up
+    r = 90 - (satellite["elevation"])  # 1 when elevation is zero.
+    ax.plot(theta, r, "o")
+    ax.text(theta, r, satellite["name"])
 
 ax.set_rmax(1)
-ax.set_rticks(rticks)   # Less radial ticks
+ax.set_rticks(rticks)  # Less radial ticks
 ax.set_yticklabels(tick_labels)
-ax.set_xticks([0, np.pi/2, np.pi, 3*np.pi/2])
-ax.set_xticklabels(['N', 'E', 'S', 'W'])
+ax.set_xticks([0, np.pi / 2, np.pi, 3 * np.pi / 2])
+ax.set_xticklabels(["N", "E", "S", "W"])
 ax.set_rlabel_position(0)  # Move radial labels away from plotted line
 ax.grid(True)
 
-ax.set_title("Satellites above the TART telescope", va='bottom')
+ax.set_title("Satellites above the TART telescope", va="bottom")
 plt.show()

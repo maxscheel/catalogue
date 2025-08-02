@@ -7,9 +7,13 @@ install_uv:
 
 
 test:
-	docker compose up --build
+	docker compose -f compose.yml -f compose.test.yml up --build --abort-on-container-exit
 
 test-client:
 	uv run app/test_api.py
+
 lint:
-	uvx ruff check --fix
+	uv run ruff check --fix app/
+
+typecheck:
+	uv run ty check app/

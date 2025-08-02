@@ -18,16 +18,78 @@ version = "1.0.0"
 description = "Object Position Server API for satellite"
 authors = [{ name = "Tim Molteno", email = "tim@elec.ac.nz" }, { name = "Max Scheel", email = "max@elec.ac.nz" }]
 license = { text = "MIT" }
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-cov", "black", "isort", "flake8"]
+dev = ["pytest", "pytest-cov", "black", "isort", "flake8", "ruff", "ty"]
 
 [tool.black]
 line-length = 88
-target-version = ['py310']
+target-version = ['py311']
 
 [tool.isort]
 profile = "black"
 multi_line_output = 3
 line_length = 88
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "C90", "I", "N", "UP", "YTT", "S", "BLE", "FBT", "B", "A", "C4", "DTZ", "T10", "DJ", "EM", "EXE", "FA", "ISC", "ICN", "G", "INP", "PIE", "T20", "PYI", "PT", "Q", "RSE", "RET", "SLF", "SLOT", "SIM", "TID", "TCH", "INT", "ARG", "PTH", "TD", "FIX", "ERA", "PD", "PGH", "PL", "TRY", "FLY", "NPY", "AIR", "PERF", "FURB", "LOG", "RUF"]
+ignore = [
+    "E501",   # Line too long
+    "F401",   # Unused import
+    "INP001", # Missing __init__.py
+    "UP031",  # Use format specifiers instead of percent format
+    "UP035",  # typing.List is deprecated, use list instead
+    "PTH103", # os.makedirs should be Path.mkdir
+    "PTH107", # os.remove should be Path.unlink
+    "PTH110", # os.path.exists should be Path.exists
+    "PTH113", # os.path.isfile should be Path.is_file
+    "PTH120", # os.path.dirname should be Path.parent
+    "PTH123", # open() should be Path.open()
+    "DTZ005", # datetime.now() without tz
+    "LOG015", # Logging on root logger
+    "G004",   # Logging with f-string
+    "BLE001", # Broad exception catching
+    "TRY401", # Redundant exception in logging
+    "TRY003", # Long exception messages
+    "TRY201", # Use raise without specifying exception name
+    "TRY300", # Consider moving to else block
+    "TRY301", # Abstract raise to inner function
+    "TRY400", # Use logging.exception instead of logging.error
+    "EM101",  # Exception string literals
+    "EM102",  # Exception f-string literals
+    "S101",   # Use of assert detected
+    "S110",   # try-except-pass
+    "S310",   # Audit URL open for permitted schemes
+    "PT009",  # Use a regular assert instead of unittest-style
+    "SIM105", # Use contextlib.suppress
+    "SIM115", # Use context manager for opening files
+    "T201",   # print found
+    "PLR2004", # Magic value used in comparison
+    "B904",   # raise exceptions with from
+    "RET504", # Unnecessary assignment before return
+    "ARG002", # Unused method argument
+    "SLF001", # Private member accessed
+    "PERF203", # try-except within loop
+    "PLC0415", # import should be at top level
+    "RUF012", # Mutable class attributes should use ClassVar
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.ty]
+terminal.output-format = "concise"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.12.7",
+    "ty>=0.0.1a16",
+]

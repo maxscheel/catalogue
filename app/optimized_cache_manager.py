@@ -4,24 +4,24 @@
 # Author Max Scheel max@elec.ac.nz (c) 2025 - Refactor for fastapi
 
 import asyncio
-from functools import lru_cache
-import time
-from datetime import timedelta
 import threading
-import numpy as np
-
-
-import tart.util.utc as utc
-from tart.imaging import location
-from tart.util import angle
+import time
+from datetime import datetime, timedelta
+from functools import lru_cache
+from typing import Any, List, Optional, Tuple, Union
 
 import norad_cache
-from dateutil import parser
+import numpy as np
 import sun_object
+from dateutil import parser
+from models import PositionInfo, SatelliteInfo
+from tart.imaging import location
+from tart.util import angle, utc
 
 # ==============================
 # OPTIMIZED CACHE MANAGEMENT
 # ==============================
+
 
 class OptimizedCacheManager:
     """Singleton cache manager with thread-safe operations and connection pooling"""
@@ -29,7 +29,7 @@ class OptimizedCacheManager:
     _instance = None
     _lock = threading.Lock()
 
-    def __new__(cls):
+    def __new__(cls) -> "OptimizedCacheManager":
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
@@ -37,7 +37,7 @@ class OptimizedCacheManager:
                     cls._instance._initialized = False
         return cls._instance
 
-    def __init__(self):
+    def __init__(self) -> None:
         if self._initialized:
             return
 
@@ -54,7 +54,7 @@ class OptimizedCacheManager:
         # Start background cache refresh
         self._start_cache_refresh_thread()
 
-    def _init_caches(self):
+    def _init_caches(self) -> None:
         """Initialize satellite caches"""
         # Initialize caches - using same instances as V1 for consistency
         self.waas_cache = norad_cache.NORADCache()
@@ -67,7 +67,7 @@ class OptimizedCacheManager:
         current_time = utc.now()
         self._preload_cache_data(current_time)
 
-    def _preload_cache_data(self, date):
+    def _preload_cache_data(self, date: datetime) -> None:
         """Pre-load cache data for last 1 minutes and next minute at second intervals"""
         try:
             date = date.replace(microsecond=0)
@@ -78,7 +78,9 @@ class OptimizedCacheManager:
                 if cache_key in self._position_cache:
                     data, timestamp = self._position_cache[cache_key]
                     if time.time() - timestamp < self._cache_ttl:
-                        print(f"Cache already contains current time {date}, skipping preload")
+                        print(
+                            f"Cache already contains current time {date}, skipping preload"
+                        )
                         return
 
             # Count cache state before preload
@@ -89,25 +91,29 @@ class OptimizedCacheManager:
             self.galileo_cache.get_positions(date)
             self.beidou_cache.get_positions(date)
 
-
-
             start_date = date
             end_date = date + timedelta(minutes=1)
             interval = timedelta(seconds=1)
             while start_date < end_date:
-                svs = self.waas_cache.get_object(start_date).satellites +\
-                    self.gps_cache.get_object(start_date).satellites +\
-                    self.galileo_cache.get_object(start_date).satellites +\
-                    self.beidou_cache.get_object(start_date).satellites
+                svs = (
+                    self.waas_cache.get_object(start_date).satellites
+                    + self.gps_cache.get_object(start_date).satellites
+                    + self.galileo_cache.get_object(start_date).satellites
+                    + self.beidou_cache.get_object(start_date).satellites
+                )
                 for sv in svs:
-                    get_cached_sv_position(sv, start_date)
+                    try:
+                        pos, _ = sv.get_position(start_date)
+                    except Exception:
+                        pass
                 start_date += interval
 
         except Exception as e:
             print(f"Cache preload warning: {e}")
 
-    def _start_cache_refresh_thread(self):
+    def _start_cache_refresh_thread(self) -> None:
         """Start background thread to refresh cache data"""
+
         def refresh_worker():
             while True:
                 try:
@@ -124,14 +130,15 @@ class OptimizedCacheManager:
         refresh_thread = threading.Thread(target=refresh_worker, daemon=True)
         refresh_thread.start()
 
-    def _cleanup_expired_cache(self):
+    def _cleanup_expired_cache(self) -> None:
         """Clean up expired cache entries"""
         current_time = time.time()
 
         # Clean position cache
         with self._cache_lock:
             expired_keys = [
-                key for key, (data, timestamp) in self._position_cache.items()
+                key
+                for key, (data, timestamp) in self._position_cache.items()
                 if current_time - timestamp > self._cache_ttl
             ]
             for key in expired_keys:
@@ -140,7 +147,8 @@ class OptimizedCacheManager:
         # Clean azimuth/elevation cache
         with self._cache_lock:
             expired_keys_az_el = [
-                key for key, (data, timestamp) in self._azimuth_elevation_cache.items()
+                key
+                for key, (data, timestamp) in self._azimuth_elevation_cache.items()
                 if current_time - timestamp > self._cache_ttl
             ]
             for key in expired_keys_az_el:
@@ -150,15 +158,21 @@ class OptimizedCacheManager:
             evicted_keys = []
             if len(self._position_cache) > self._max_cache_size:
                 # Remove oldest entries
-                sorted_items = sorted(self._position_cache.items(), key=lambda x: x[1][1])
-                for key, _ in sorted_items[:len(self._position_cache) - self._max_cache_size]:
+                sorted_items = sorted(
+                    self._position_cache.items(), key=lambda x: x[1][1]
+                )
+                for key, _ in sorted_items[
+                    : len(self._position_cache) - self._max_cache_size
+                ]:
                     del self._position_cache[key]
                     evicted_keys.append(key)
 
         if expired_keys or expired_keys_az_el or evicted_keys:
-            print(f"Cache cleanup: {len(expired_keys)} expired position entries, {len(expired_keys_az_el)} expired az/el entries, {len(evicted_keys)} evicted entries")
+            print(
+                f"Cache cleanup: {len(expired_keys)} expired position entries, {len(expired_keys_az_el)} expired az/el entries, {len(evicted_keys)} evicted entries"
+            )
 
-    def get_cached_positions(self, date):
+    def get_cached_positions(self, date: datetime) -> list[PositionInfo]:
         """Get positions with caching"""
         # Round to second for cache key
         rounded_date = date.replace(microsecond=0)
@@ -175,7 +189,6 @@ class OptimizedCacheManager:
         # Log cache miss
         print(f"Cache miss for positions on {rounded_date}, for {date}")
 
-
         # Calculate positions
         positions = []
         positions += self.waas_cache.get_positions(date)
@@ -189,7 +202,14 @@ class OptimizedCacheManager:
 
         return positions
 
-    def get_cached_catalog_list(self, date, lat, lon, alt, elevation):
+    def get_cached_catalog_list(
+        self,
+        date: datetime,
+        lat: angle.Angle,
+        lon: angle.Angle,
+        alt: float,
+        elevation: float,
+    ) -> list[SatelliteInfo]:
         """Get catalog list with caching and optimization"""
         # Round to second for cache key
         date = date.replace(microsecond=0)
@@ -201,13 +221,17 @@ class OptimizedCacheManager:
                 if time.time() - timestamp < self._cache_ttl:
                     return data
 
-
         gps_eph = self.gps_cache.get_object(date)
         waas_eph = self.waas_cache.get_object(date)
         beidou_eph = self.beidou_cache.get_object(date)
         galileo_eph = self.galileo_cache.get_object(date)
 
-        comp = gps_eph.satellites + waas_eph.satellites + beidou_eph.satellites + galileo_eph.satellites
+        comp = (
+            gps_eph.satellites
+            + waas_eph.satellites
+            + beidou_eph.satellites
+            + galileo_eph.satellites
+        )
 
         jy_list = (gps_eph.jansky,) * len(gps_eph.satellites)
         jy_list += (waas_eph.jansky,) * len(waas_eph.satellites)
@@ -216,9 +240,12 @@ class OptimizedCacheManager:
         res = get_az_el_optimized(comp, date, lat, lon, alt)
 
         catalog = []
-        catalog += [{'name': pair[0].name, 'jy': pair[1]} | pair[2]  for pair in zip(comp, jy_list, res)]
+        catalog += [
+            {"name": pair[0].name, "jy": pair[1]} | pair[2]
+            for pair in zip(comp, jy_list, res, strict=False)
+        ]
         catalog += self.sun.get_az_el(date, lat, lon, alt, elevation)
-        catalog = list(filter(lambda x: x['el'] > elevation, catalog))
+        catalog = list(filter(lambda x: x["el"] > elevation, catalog))
 
         # Cache the result
         with self._cache_lock:
@@ -226,11 +253,31 @@ class OptimizedCacheManager:
 
         return catalog
 
-    async def get_bulk_catalog_async(self, dates, lat, lon, alt, elevation):
+    async def get_bulk_catalog_async(
+        self,
+        dates: list[datetime],
+        lat: float | angle.Angle,
+        lon: float | angle.Angle,
+        alt: float,
+        elevation: float,
+    ) -> list[list[SatelliteInfo]]:
         """Get bulk catalog data using async processing"""
         loop = asyncio.get_event_loop()
-        lat_angle = angle.from_rad(angle.deg_to_rad(lat))
-        lon_angle = angle.from_rad(angle.deg_to_rad(lon))
+
+        # Handle both float and Angle inputs
+        if hasattr(lat, "rad"):
+            # Already an Angle object
+            lat_angle = lat
+        else:
+            # Convert from decimal degrees
+            lat_angle = angle.from_rad(angle.deg_to_rad(lat))
+
+        if hasattr(lon, "rad"):
+            # Already an Angle object
+            lon_angle = lon
+        else:
+            # Convert from decimal degrees
+            lon_angle = angle.from_rad(angle.deg_to_rad(lon))
 
         # Create tasks for parallel processing
         tasks = []
@@ -238,7 +285,11 @@ class OptimizedCacheManager:
             task = loop.run_in_executor(
                 None,
                 self.get_cached_catalog_list,
-                date, lat_angle, lon_angle, alt, elevation
+                date,
+                lat_angle,
+                lon_angle,
+                alt,
+                elevation,
             )
             tasks.append(task)
 
@@ -246,19 +297,23 @@ class OptimizedCacheManager:
         results = await asyncio.gather(*tasks)
         return results
 
+
 cache_manager = OptimizedCacheManager()
 
-def parse_date_cached(date_string):
+
+def parse_date_cached(date_string: str) -> datetime:
     if date_string == "now":
         return utc.now().replace(microsecond=0)
-    else:
-        dt = parser.parse(date_string.replace(' ', '+'))
-        return utc.to_utc(dt).replace(microsecond=0)
+    dt = parser.parse(date_string.replace(" ", "+"))
+    return utc.to_utc(dt).replace(microsecond=0)
 
-def process_bulk_dates_vectorized(dates_param, lat, lon, alt, elevation):
+
+def process_bulk_dates_vectorized(
+    dates_list: list[str], lat: float, lon: float, alt: float, elevation: float
+) -> tuple[list[str], list[list[SatelliteInfo]]]:
     """Process bulk dates using vectorized operations where possible"""
     # Parse all dates at once
-    dates = [parse_date_cached(ts) for ts in dates_param]
+    dates = [parse_date_cached(ts) for ts in dates_list]
 
     # Use async processing for I/O bound operations
     loop = asyncio.new_event_loop()
@@ -266,11 +321,12 @@ def process_bulk_dates_vectorized(dates_param, lat, lon, alt, elevation):
 
     try:
         results = loop.run_until_complete(
-            cache_manager.get_bulk_catalog_async(dates, lat, lon, alt, elevation)
+            cache_manager.get_bulk_catalog_async(dates, lat, lon, alt, elevation),
         )
         return dates, results
     finally:
         loop.close()
+
 
 def ecef_to_horizontal_vectorized(loc, positions_array):
     """
@@ -310,8 +366,10 @@ def ecef_to_horizontal_vectorized(loc, positions_array):
     up = cos_lat * cos_lon * dx + cos_lat * sin_lon * dy + sin_lat * dz
 
     # Calculate range, elevation, azimuth - vectorized
-    range_m = np.sqrt(dx*dx + dy*dy + dz*dz)
-    elevation_rad = np.arcsin(np.clip(up / range_m, -1, 1))  # Clip to avoid numerical errors
+    range_m = np.sqrt(dx * dx + dy * dy + dz * dz)
+    elevation_rad = np.arcsin(
+        np.clip(up / range_m, -1, 1)
+    )  # Clip to avoid numerical errors
     azimuth_rad = np.arctan2(east, north)
 
     # Convert to degrees
@@ -323,15 +381,23 @@ def ecef_to_horizontal_vectorized(loc, positions_array):
 
     return range_m, elevation_deg, azimuth_deg
 
+
 @lru_cache(maxsize=100000)
-def get_cached_sv_position(sv, date):
+def get_cached_sv_position(sv: Any, date: datetime) -> Any | None:
     try:
         pos, _ = sv.get_position(date)
         return pos
     except Exception:
         return None
 
-def get_az_el_optimized(satellites, date, lat, lon, alt):
+
+def get_az_el_optimized(
+    satellites: list[Any],
+    date: datetime,
+    lat: angle.Angle,
+    lon: angle.Angle,
+    alt: float,
+) -> list[SatelliteInfo]:
     """
     Optimized get_az_el using fully vectorized coordinate transformations.
     Eliminates the 137 individual ecef_to_horizontal calls.
@@ -366,4 +432,9 @@ def get_az_el_optimized(satellites, date, lat, lon, alt):
     ranges_rounded = np.round(ranges, decimals=1)
 
     # Build results using vectorized filtering
-    return [{'r': r, 'el': el, 'az': az} for (r, el, az) in zip(ranges_rounded, elevations_rounded, azimuths_rounded)]
+    return [
+        {"r": r, "el": el, "az": az}
+        for (r, el, az) in zip(
+            ranges_rounded, elevations_rounded, azimuths_rounded, strict=False
+        )
+    ]

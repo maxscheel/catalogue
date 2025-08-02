@@ -1,0 +1,38 @@
+# Test configuration extending the main compose.yml
+# (c) 2018-2023 Tim Molteno (tim@elec.ac.nz)
+# License GPL v3
+
+services:
+    object_position_server:
+        extends:
+            file: compose.yml
+            service: object_position_server
+        ports: []
+        networks:
+            - test-network
+        healthcheck:
+            test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8876/catalog?lat=-45.87&lon=170.6')"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+            start_period: 30s
+
+    test_runner:
+        build:
+            context: .
+            dockerfile: Dockerfile
+        volumes:
+            - ./app:/app/app
+        working_dir: /app/app
+        command: ["python", "-m", "unittest", "test_api.py", "-v"]
+        depends_on:
+            object_position_server:
+                condition: service_healthy
+        environment:
+            - PYTHONUNBUFFERED=1
+        networks:
+            - test-network
+
+networks:
+    test-network:
+        driver: bridge

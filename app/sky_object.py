@@ -1,14 +1,14 @@
 # Author Tim Molteno tim@elec.ac.nz (c) 2013-2023
 
-class SkyObject:
 
+class SkyObject:
     def __init__(self, name):
         self.name = name
 
     def get_positions(self, date):
         raise Exception(
-            "This cache object must have an overriden get_positions() method")
+            "This cache object must have an overriden get_positions() method"
+        )
 
     def get_az_el(self, date, lat, lon, alt):
-        raise Exception(
-            "This cache object must have an overriden get_az_el() method")
+        raise Exception("This cache object must have an overriden get_az_el() method")
