@@ -13,10 +13,10 @@ dependencies = [
     "uvloop",
     "skyfield>=1.53",
 ]
-name = "catalogue-service"
+name = "catalogue"
 version = "1.0.0"
-description = "Object Position Server API for satellite catalogues"
-authors = [{ name = "Tim Molteno", email = "tim@elec.ac.nz" }]
+description = "Object Position Server API for satellite"
+authors = [{ name = "Tim Molteno", email = "tim@elec.ac.nz" }, { name = "Max Scheel", email = "max@elec.ac.nz" }]
 license = { text = "MIT" }
 requires-python = ">=3.10"
 

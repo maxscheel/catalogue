@@ -3,7 +3,7 @@
 # License GPL v3
 
 services:
-    fastapi-v2-server:
+    object_position_server:
         build:
             context: .
             dockerfile: Dockerfile
@@ -16,7 +16,7 @@ services:
         command:
             [
                 "uvicorn",
-                "fastapi_v2:app",
+                "main:app",
                 "--host",
                 "0.0.0.0",
                 "--port",
