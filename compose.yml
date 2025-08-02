@@ -12,7 +12,7 @@ services:
         restart: unless-stopped
         volumes:
             - ~/catalog_cache:/app/orbit_data
-            - ./app:/app/app
+            # - ./app:/app/app
         command:
             [
                 "uvicorn",
@@ -40,4 +40,3 @@ networks:
     caddy:
         external: true
         name: caddy_caddy
-
