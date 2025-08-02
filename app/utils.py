@@ -70,16 +70,13 @@ async def warm_cache():
 
         # Common test locations for cache warming
         test_locations = [
-            (-45.85, 170.54),   # Christchurch, NZ
-            (-43.53, 172.64),   # Canterbury, NZ
-            (40.7128, -74.0060), # New York, USA
-            (51.5074, -0.1278),  # London, UK
+            (-20.259, 57.759),  # Bel Air - Mauritius
         ]
 
         for lat, lon in test_locations:
             try:
-                lat_angle = angle.from_dms(lat)
-                lon_angle = angle.from_dms(lon)
+                lat_angle = angle.from_rad(angle.deg_to_rad(lat))
+                lon_angle = angle.from_rad(angle.deg_to_rad(lon))
                 await cache_manager.get_bulk_catalog_async(
                     [datetime.now(UTC)], lat_angle, lon_angle, 0.0, 0.0
                 )

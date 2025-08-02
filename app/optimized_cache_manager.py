@@ -229,10 +229,8 @@ class OptimizedCacheManager:
     async def get_bulk_catalog_async(self, dates, lat, lon, alt, elevation):
         """Get bulk catalog data using async processing"""
         loop = asyncio.get_event_loop()
-        lat_angle = angle.from_dms(lat)
-        lon_angle = angle.from_dms(lon)
-
-
+        lat_angle = angle.from_rad(angle.deg_to_rad(lat))
+        lon_angle = angle.from_rad(angle.deg_to_rad(lon))
 
         # Create tasks for parallel processing
         tasks = []
